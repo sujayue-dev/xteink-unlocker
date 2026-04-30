@@ -27,11 +27,14 @@ fn socket_path() -> PathBuf {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let log_file = std::fs::File::create("/tmp/unlocker-helper.log")
+        .expect("cannot create /tmp/unlocker-helper.log");
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
+        .with_writer(std::sync::Mutex::new(log_file))
         .init();
 
     let path = socket_path();

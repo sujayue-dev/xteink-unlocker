@@ -15,7 +15,7 @@ use tokio::net::UdpSocket;
 pub struct DnsConfig {
     pub bind_ip: IpAddr,
     pub port: u16,
-    pub spoofed_host: String,
+    pub spoofed_hosts: Vec<String>,
     pub answer_with: Ipv4Addr,
 }
 
@@ -24,7 +24,11 @@ impl DnsConfig {
         Self {
             bind_ip: IpAddr::V4(bridge_ip),
             port,
-            spoofed_host: locale.api_host().to_string(),
+            spoofed_hosts: vec![
+                locale.api_host().to_string(),
+                // CrossPoint OTA checks api.github.com for updates.
+                "api.github.com".to_string(),
+            ],
             answer_with: bridge_ip,
         }
     }
@@ -45,7 +49,7 @@ impl DnsHandle {
 pub async fn start(config: DnsConfig) -> Result<DnsHandle> {
     let addr = SocketAddr::new(config.bind_ip, config.port);
     let socket = Arc::new(UdpSocket::bind(addr).await?);
-    tracing::info!(?addr, host = %config.spoofed_host, "DNS server bound");
+    tracing::info!(?addr, hosts = ?config.spoofed_hosts, "DNS server bound");
 
     let mut builder = TokioResolver::builder_with_config(
         ResolverConfig::udp_and_tcp(&CLOUDFLARE),
@@ -109,14 +113,14 @@ async fn handle_query(
         .clone();
 
     let qname_norm = query.name().to_string().trim_end_matches('.').to_lowercase();
-    let target = cfg.spoofed_host.to_lowercase();
+    let should_spoof = cfg.spoofed_hosts.iter().any(|h| h.to_lowercase() == qname_norm);
 
     let mut response = Message::new(request.metadata.id, MessageType::Response, OpCode::Query);
     response.metadata.recursion_desired = request.metadata.recursion_desired;
     response.metadata.recursion_available = true;
     response.queries.push(query.clone());
 
-    if qname_norm == target && query.query_type() == RecordType::A {
+    if should_spoof && query.query_type() == RecordType::A {
         tracing::info!(host = %qname_norm, "spoofing");
         let rec = Record::from_rdata(query.name().clone(), 60, RData::A(rdata::A(cfg.answer_with)));
         response.answers.push(rec);

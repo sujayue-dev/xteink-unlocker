@@ -143,6 +143,8 @@ export function Done() {
 }
 
 export function Failed({ error }: { error: string | null }) {
+  const log = useSessionLog();
+
   return (
     <div className="space-y-6">
       <div>
@@ -164,6 +166,30 @@ export function Failed({ error }: { error: string | null }) {
           you can also recover via the WebSerial flasher's full-flash restore.
         </p>
       </Card>
+      {log.length > 0 && (
+        <div className="rounded-xl border border-stone-200 bg-stone-950 p-4">
+          <div className="max-h-48 overflow-y-auto font-mono text-xs leading-5">
+            {log.map((e, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="shrink-0 text-stone-500">
+                  {new Date(e.ts).toLocaleTimeString()}
+                </span>
+                <span
+                  className={
+                    e.level === "warn"
+                      ? "text-amber-400"
+                      : e.level === "error"
+                        ? "text-red-400"
+                        : "text-stone-300"
+                  }
+                >
+                  {e.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="flex justify-end">
         <PrimaryButton onClick={() => api.cancel()}>Start over</PrimaryButton>
       </div>

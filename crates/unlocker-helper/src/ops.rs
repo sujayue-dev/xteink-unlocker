@@ -52,36 +52,70 @@ pub async fn feth_destroy(name: &str) -> Result<()> {
 
 // ── Internet Sharing ─────────────────────────────────────────────────────────
 
-pub async fn is_enable(upstream: &str, ssid: &str, psk: &str) -> Result<()> {
+const ADHOC_SERVICE_NAME: &str = "UnlockerUpstream";
+const ADHOC_IP: &str = "10.10.10.1";
+
+/// Create a fake network service on lo0 so Internet Sharing sees an
+/// "active" upstream even though there's no real internet connection.
+async fn create_adhoc_upstream() -> Result<()> {
+    // Remove stale service if it exists from a prior run.
+    let _ = sh("networksetup", &["-removenetworkservice", ADHOC_SERVICE_NAME]).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Create may fail if it already exists (race or incomplete cleanup).
+    match sh("networksetup", &["-createnetworkservice", ADHOC_SERVICE_NAME, "lo0"]).await {
+        Ok(_) => {}
+        Err(e) => {
+            tracing::warn!(?e, "createnetworkservice failed, may already exist");
+        }
+    }
+    // Set the IP regardless — works even if the service already existed.
+    sh("networksetup", &["-setmanual", ADHOC_SERVICE_NAME, ADHOC_IP, "255.255.255.255"]).await?;
+    tracing::info!("adhoc upstream service ready on lo0");
+    Ok(())
+}
+
+async fn remove_adhoc_upstream() {
+    let _ = sh("networksetup", &["-removenetworkservice", ADHOC_SERVICE_NAME]).await;
+    tracing::info!("removed adhoc upstream service");
+}
+
+pub async fn is_enable(_upstream: &str, ssid: &str, psk: &str) -> Result<()> {
     // Back up the existing plist if we haven't already.
     if Path::new(NAT_PLIST).exists() && !Path::new(NAT_PLIST_BACKUP).exists() {
         tokio::fs::copy(NAT_PLIST, NAT_PLIST_BACKUP).await.ok();
     }
 
-    write_nat_plist(upstream, ssid, psk).await?;
+    tracing::info!("stopping existing NetworkSharing");
+    let _ = sh("launchctl", &["bootout", "system/com.apple.NetworkSharing"]).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Internet Sharing requires an active network service with an IP to act
+    // as the upstream. Create a fake one on lo0 so it works even when the
+    // Mac has no wired connection.
+    create_adhoc_upstream().await?;
+
+    // Disconnect Wi-Fi from the current network. Internet Sharing needs to
+    // reconfigure en0 from client mode to AP mode — it can't do that while
+    // en0 is associated with a network. We leave the radio on.
+    tracing::info!("disconnecting Wi-Fi from current network");
+    let _ = sh("networksetup", &["-setairportpower", "en0", "off"]).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    let _ = sh("networksetup", &["-setairportpower", "en0", "on"]).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    // Write NAT plist so Internet Sharing is pre-configured when the user
+    // enables it in System Settings.
+    tracing::info!(%ssid, "writing NAT plist with lo0 upstream");
+    write_nat_plist("lo0", ssid, psk).await?;
     state::mutate(|s| s.internet_sharing_active = true).await?;
 
-    // Modern macOS: `launchctl kickstart -k system/com.apple.InternetSharing`
-    // restarts the daemon, picking up the new plist.
-    let _ = sh("launchctl", &["kickstart", "-k", "system/com.apple.InternetSharing"]).await;
-    // Older fallback if kickstart didn't work:
-    let _ = sh(
-        "launchctl",
-        &["load", "-w", "/System/Library/LaunchDaemons/com.apple.InternetSharing.plist"],
-    )
-    .await;
-
-    tracing::info!(%upstream, %ssid, "Internet Sharing enabled");
+    tracing::info!(%ssid, "Internet Sharing configured — user must enable in System Settings");
     Ok(())
 }
 
 pub async fn is_disable() -> Result<()> {
-    let _ = sh(
-        "launchctl",
-        &["unload", "/System/Library/LaunchDaemons/com.apple.InternetSharing.plist"],
-    )
-    .await;
-    let _ = sh("launchctl", &["bootout", "system/com.apple.InternetSharing"]).await;
+    let _ = sh("launchctl", &["bootout", "system/com.apple.NetworkSharing"]).await;
 
     // Restore the prior plist if we backed one up.
     if Path::new(NAT_PLIST_BACKUP).exists() {
@@ -89,6 +123,9 @@ pub async fn is_disable() -> Result<()> {
     } else {
         tokio::fs::remove_file(NAT_PLIST).await.ok();
     }
+
+    // Remove the fake upstream service.
+    remove_adhoc_upstream().await;
 
     state::mutate(|s| s.internet_sharing_active = false).await?;
     tracing::info!("Internet Sharing disabled");

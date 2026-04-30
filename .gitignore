@@ -7,3 +7,6 @@ app/src-tauri/gen/
 *.log
 .env.local
 .env.*.local
+
+# TLS private key — never commit
+crates/unlocker-helper/certs/privkey.pem

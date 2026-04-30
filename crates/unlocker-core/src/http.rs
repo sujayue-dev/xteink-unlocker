@@ -77,6 +77,11 @@ pub fn router(cfg: Arc<ServerConfig>) -> Router {
     Router::new()
         .route("/api/v1/check-update", get(check_update))
         .route("/firmware/{filename}", get(serve_firmware))
+        // CrossPoint OTA: spoofs the GitHub releases API endpoint.
+        .route(
+            "/repos/crosspoint-reader/crosspoint-reader/releases/latest",
+            get(github_releases_latest),
+        )
         .fallback(catch_all)
         .with_state(cfg)
 }
@@ -139,6 +144,37 @@ async fn serve_firmware(
         body,
     )
         .into_response())
+}
+
+/// Spoofs `GET /repos/crosspoint-reader/crosspoint-reader/releases/latest`
+/// so CrossPoint's OTA updater sees the firmware we're serving as a new release.
+async fn github_releases_latest(
+    State(cfg): State<Arc<ServerConfig>>,
+    headers: HeaderMap,
+) -> Json<serde_json::Value> {
+    tracing::info!(
+        host = ?headers.get(header::HOST),
+        user_agent = ?headers.get(header::USER_AGENT),
+        "CrossPoint device requested update via GitHub API"
+    );
+
+    cfg.on_manifest_request.notify_waiters();
+
+    let download_url = format!(
+        "https://{}/firmware/firmware.bin",
+        cfg.bridge_ip,
+    );
+
+    Json(serde_json::json!({
+        "tag_name": cfg.crosspoint_version,
+        "name": format!("CrossPoint {}", cfg.crosspoint_version),
+        "assets": [{
+            "name": "firmware.bin",
+            "browser_download_url": download_url,
+            "size": cfg.firmware_size,
+            "content_type": "application/octet-stream"
+        }]
+    }))
 }
 
 async fn catch_all(headers: HeaderMap, uri: axum::http::Uri) -> impl IntoResponse {

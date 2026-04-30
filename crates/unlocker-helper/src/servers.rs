@@ -9,10 +9,15 @@ use anyhow::{anyhow, Result};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
-use unlocker_core::cert::generate_self_signed;
+use unlocker_core::cert::SelfSignedCert;
 use unlocker_core::dns::{self, DnsConfig, DnsHandle};
 use unlocker_core::http::{self, ServerConfig, ServerHandles};
 use unlocker_core::types::ArmServerSpec;
+
+/// Let's Encrypt cert for unlocker.crosspointreader.com — trusted by ESP32's
+/// CA bundle, so both stock Xteink and CrossPoint firmware accept it.
+const BUNDLED_CERT_PEM: &str = include_str!("../certs/fullchain.pem");
+const BUNDLED_KEY_PEM: &str = include_str!("../certs/privkey.pem");
 
 pub struct ServerSet {
     dns: Option<DnsHandle>,
@@ -42,8 +47,10 @@ impl ServerHolder {
             .parse()
             .map_err(|_| anyhow!("invalid bridge_ip: {}", spec.bridge_ip))?;
 
-        let host = spec.locale.api_host();
-        let cert = generate_self_signed(&[host])?;
+        let cert = SelfSignedCert {
+            cert_pem: BUNDLED_CERT_PEM.to_string(),
+            key_pem: BUNDLED_KEY_PEM.to_string(),
+        };
 
         let dns_cfg = DnsConfig::for_locale(spec.locale, bridge_ip, spec.dns_internal_port);
         let dns_handle = dns::start(dns_cfg).await?;

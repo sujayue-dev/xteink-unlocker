@@ -26,16 +26,15 @@ impl Runtime {
         std::sync::Arc::new(Self)
     }
 
-    /// Phase 1: create the virtual upstream interface and write the NAT plist.
-    /// After this the user must manually enable Internet Sharing in System Settings.
+    /// Phase 1: create lo0 upstream service and write NAT plist.
+    /// After this the user must enable Internet Sharing in System Settings.
     pub async fn prepare_hotspot(
         &self,
         helper: &Helper,
         ssid: &str,
         psk: &str,
     ) -> Result<()> {
-        helper.feth_create(FETH_NAME, FETH_IP, FETH_PREFIX).await?;
-        helper.is_enable(FETH_NAME, ssid, psk).await?;
+        helper.is_enable("auto", ssid, psk).await?;
         Ok(())
     }
 
@@ -72,11 +71,14 @@ impl Runtime {
         helper.arm_servers(spec).await
     }
 
+    pub async fn wait_for_bridge(&self, helper: &Helper, timeout: Duration) -> Result<Ipv4Addr> {
+        wait_for_bridge_ip(helper, timeout).await
+    }
+
     pub async fn teardown(&self, helper: &Helper) -> Result<()> {
         let _ = helper.disarm_servers().await;
         let _ = helper.pfctl_remove().await;
         let _ = helper.is_disable().await;
-        let _ = helper.feth_destroy(FETH_NAME).await;
         Ok(())
     }
 }

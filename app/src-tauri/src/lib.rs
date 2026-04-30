@@ -97,8 +97,10 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
         .ok_or("non-utf8 helper path")?
         .replace('\'', "'\\''");
 
+    // Kill any stale helper from a previous run, then start fresh.
+    // Use pkill with the exact binary name (not -f) to avoid matching the shell itself.
     let script = format!(
-        "do shell script \"'{path_str}' &> /dev/null &\" with administrator privileges"
+        "do shell script \"pkill unlocker-helper 2>/dev/null; sleep 1; '{path_str}' &> /dev/null &\" with administrator privileges"
     );
 
     let status = tokio::process::Command::new("osascript")
@@ -107,13 +109,19 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("failed to run osascript: {e}"))?;
 
-    if status.success() {
-        // Give the helper a moment to start listening on the socket.
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-        Ok(())
-    } else {
-        Err("user cancelled or authorization failed".into())
+    if !status.success() {
+        return Err("user cancelled or authorization failed".into());
     }
+
+    // Wait for the helper to start listening on the socket.
+    let helper = Helper::new();
+    for _ in 0..10 {
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        if helper.ping().await.is_ok() {
+            return Ok(());
+        }
+    }
+    Err("helper started but socket not reachable after 5s".into())
 }
 
 #[tauri::command]
@@ -221,15 +229,24 @@ async fn run_install(
     orch.transition(OrchState::SettingUpHotspot, None).await;
     let ssid = "CrossPoint-Setup".to_string();
     let psk = format!("xtu-{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
-    runtime.prepare_hotspot(&helper, &ssid, &psk).await?;
+    log.push("info", "configuring Internet Sharing", None).await;
+    if let Err(e) = runtime.prepare_hotspot(&helper, &ssid, &psk).await {
+        log.push("error", format!("Internet Sharing setup failed: {e:#}"), None).await;
+        return Err(e.into());
+    }
+    log.push("info", "ready — enable Internet Sharing in System Settings", None).await;
 
     // Wait for the user to enable Internet Sharing in System Settings.
     orch.transition(OrchState::WaitingForInternetSharing, None).await;
-    log.push("info", "waiting for user to enable Internet Sharing", None).await;
-    let info = runtime.await_hotspot(&helper, &ssid, &psk, Duration::from_secs(300)).await?;
-
-    orch.set_hotspot(info.ssid, info.psk, info.bridge_ip.to_string())
-        .await;
+    let info = match runtime.await_hotspot(&helper, &ssid, &psk, Duration::from_secs(300)).await {
+        Ok(info) => info,
+        Err(e) => {
+            log.push("error", format!("bridge100 timeout: {e:#}"), None).await;
+            return Err(e);
+        }
+    };
+    log.push("info", format!("hotspot up — bridge at {}", info.bridge_ip), None).await;
+    orch.set_hotspot(info.ssid, info.psk, info.bridge_ip.to_string()).await;
     orch.transition(OrchState::AwaitingClient, None).await;
 
     // ── Wait for device to join ──

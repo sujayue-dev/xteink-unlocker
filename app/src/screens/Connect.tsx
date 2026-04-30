@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { Card, Eyebrow, Heading, StatusDot, Subhead } from "../components/ui";
+import { useSessionLog } from "../store";
 import type { StateKind } from "../types";
 
 type Phase =
@@ -21,6 +22,8 @@ export function Connect({ state }: { state: StateKind }) {
           : state === "awaiting_client"
             ? "waiting_for_device"
             : "waiting_for_check";
+
+  const logs = useSessionLog();
 
   const [info, setInfo] = useState<{
     ssid: string | null;
@@ -69,6 +72,7 @@ export function Connect({ state }: { state: StateKind }) {
         <Card>
           <ProgressBar />
         </Card>
+        <LogPanel entries={logs} />
       </div>
     );
   }
@@ -88,20 +92,26 @@ export function Connect({ state }: { state: StateKind }) {
 
         <ol className="space-y-3">
           <Step n={1} title="Open Internet Sharing" done={false} active={true}>
-            <strong>System Settings → General → Sharing → Internet Sharing</strong>
+            <strong>System Settings → General → Sharing → Internet Sharing</strong>.
+            If Internet Sharing is already on, turn it off first — you
+            can't change settings while it's active.
           </Step>
 
           <Step n={2} title="Configure sharing" done={false} active={true}>
             Set <strong>Share your connection from</strong> to{" "}
             <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-xs text-stone-700">
-              Xteink Unlocker
+              UnlockerUpstream
             </span>{" "}
             and check{" "}
-            <strong>Wi-Fi</strong> in the "To devices using" list.
+            <strong>Wi-Fi</strong> in the "To devices using" list. Click{" "}
+            <strong>Wi-Fi Options</strong> and set a simple password like{" "}
+            <span className="font-mono text-stone-700">11111111</span>{" "}
+            — you'll need to type this on your Xteink.
           </Step>
 
           <Step n={3} title="Turn it on" done={false} active={true}>
-            Toggle Internet Sharing on. If macOS asks to confirm, click Start.
+            Toggle Internet Sharing on and click Start when macOS asks to
+            confirm. Your Mac's Wi-Fi will disconnect — this is expected.
           </Step>
         </ol>
 
@@ -113,6 +123,7 @@ export function Connect({ state }: { state: StateKind }) {
             </p>
           </div>
         </Card>
+        <LogPanel entries={logs} />
       </div>
     );
   }
@@ -165,6 +176,44 @@ export function Connect({ state }: { state: StateKind }) {
           request and continue automatically.
         </Step>
       </ol>
+
+      <LogPanel entries={logs} />
+    </div>
+  );
+}
+
+function LogPanel({ entries }: { entries: { ts: string; level: string; message: string }[] }) {
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [entries.length]);
+
+  if (entries.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-stone-200 bg-stone-950 p-4">
+      <div className="max-h-48 overflow-y-auto font-mono text-xs leading-5">
+        {entries.map((e, i) => (
+          <div key={i} className="flex gap-2">
+            <span className="shrink-0 text-stone-500">
+              {new Date(e.ts).toLocaleTimeString()}
+            </span>
+            <span
+              className={
+                e.level === "warn"
+                  ? "text-amber-400"
+                  : e.level === "error"
+                    ? "text-red-400"
+                    : "text-stone-300"
+              }
+            >
+              {e.message}
+            </span>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
     </div>
   );
 }
