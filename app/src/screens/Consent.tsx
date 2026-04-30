@@ -30,10 +30,6 @@ export function Consent() {
             for your device. Wired Ethernet is unaffected.
           </li>
           <li>
-            – Install a temporary local certificate authority on the Xteink
-            (only on the device, not on your Mac).
-          </li>
-          <li>
             – Replace the firmware on the Xteink with CrossPoint, using the
             device's own native update mechanism.
           </li>

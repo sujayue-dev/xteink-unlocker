@@ -68,17 +68,12 @@ DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
 [[ -d "${APP_PATH}" ]] || { echo "no .app produced by tauri build" >&2; exit 1; }
 echo "==> App bundle: ${APP_PATH}"
 
-# ── Inject helper + LaunchDaemon plist ──
+# ── Inject helper binary ──
 echo "==> Injecting helper into app bundle"
 HELPER_BIN_DST="${APP_PATH}/Contents/MacOS/unlocker-helper"
-LAUNCHD_DIR="${APP_PATH}/Contents/Library/LaunchDaemons"
-HELPER_PLIST_SRC="${REPO_ROOT}/app/src-tauri/LaunchDaemons/com.sofriendly.crosspoint.unlocker.helper.plist"
 
-mkdir -p "${LAUNCHD_DIR}"
 cp -f "${HELPER_BIN_SRC}" "${HELPER_BIN_DST}"
-cp -f "${HELPER_PLIST_SRC}" "${LAUNCHD_DIR}/"
 chmod 0755 "${HELPER_BIN_DST}"
-chmod 0644 "${LAUNCHD_DIR}/"*.plist
 
 echo "==> Signing helper binary"
 codesign --force \

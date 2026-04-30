@@ -19,6 +19,7 @@ export function App() {
       state === "selecting_firmware" ||
       state === "downloading_firmware" ||
       state === "setting_up_hotspot" ||
+      state === "waiting_for_internet_sharing" ||
       state === "awaiting_client" ||
       state === "awaiting_device_request"
     ) {
@@ -38,6 +39,7 @@ export function App() {
       )}
       {(state === "downloading_firmware" ||
         state === "setting_up_hotspot" ||
+        state === "waiting_for_internet_sharing" ||
         state === "awaiting_client" ||
         state === "awaiting_device_request") && <Connect state={state} />}
       {(state === "armed" || state === "serving" || state === "flashing") && (

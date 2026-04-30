@@ -11,9 +11,5 @@
     <!-- Allow outbound HTTP for the catalog and firmware downloads. -->
     <key>com.apple.security.network.client</key>
     <true/>
-
-    <!-- For SMAppService registration of our LaunchDaemon. -->
-    <key>com.apple.developer.service-management.managed-by-main-app</key>
-    <true/>
 </dict>
 </plist>

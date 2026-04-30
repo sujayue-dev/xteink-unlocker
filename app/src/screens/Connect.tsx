@@ -3,7 +3,12 @@ import { api } from "../api";
 import { Card, Eyebrow, Heading, StatusDot, Subhead } from "../components/ui";
 import type { StateKind } from "../types";
 
-type Phase = "preparing" | "hotspot_starting" | "waiting_for_device" | "waiting_for_check";
+type Phase =
+  | "preparing"
+  | "hotspot_starting"
+  | "waiting_for_sharing"
+  | "waiting_for_device"
+  | "waiting_for_check";
 
 export function Connect({ state }: { state: StateKind }) {
   const phase: Phase =
@@ -11,9 +16,11 @@ export function Connect({ state }: { state: StateKind }) {
       ? "preparing"
       : state === "setting_up_hotspot"
         ? "hotspot_starting"
-        : state === "awaiting_client"
-          ? "waiting_for_device"
-          : "waiting_for_check";
+        : state === "waiting_for_internet_sharing"
+          ? "waiting_for_sharing"
+          : state === "awaiting_client"
+            ? "waiting_for_device"
+            : "waiting_for_check";
 
   const [info, setInfo] = useState<{
     ssid: string | null;
@@ -56,7 +63,7 @@ export function Connect({ state }: { state: StateKind }) {
           <Subhead>
             {phase === "preparing"
               ? "Verifying SHA-256 as it streams. After this Unlocker is fully offline — your Mac can lose internet without affecting the install."
-              : "Your Mac is briefly disconnecting from Wi-Fi to create a private hotspot for your device. Wired Ethernet is unaffected."}
+              : "Preparing the virtual network interface…"}
           </Subhead>
         </div>
         <Card>
@@ -66,16 +73,57 @@ export function Connect({ state }: { state: StateKind }) {
     );
   }
 
-  const certUrl = info.bridge_ip
-    ? `http://${info.bridge_ip}/unlocker-root.pem`
-    : "…";
+  if (phase === "waiting_for_sharing") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <Eyebrow>Step 4 · Enable Internet Sharing</Eyebrow>
+          <Heading>Turn on Internet Sharing</Heading>
+          <Subhead>
+            Unlocker needs your Mac to act as a Wi-Fi hotspot for your device.
+            Follow the steps below — Unlocker will detect it automatically and
+            continue.
+          </Subhead>
+        </div>
+
+        <ol className="space-y-3">
+          <Step n={1} title="Open Internet Sharing" done={false} active={true}>
+            <strong>System Settings → General → Sharing → Internet Sharing</strong>
+          </Step>
+
+          <Step n={2} title="Configure sharing" done={false} active={true}>
+            Set <strong>Share your connection from</strong> to{" "}
+            <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-xs text-stone-700">
+              Xteink Unlocker
+            </span>{" "}
+            and check{" "}
+            <strong>Wi-Fi</strong> in the "To devices using" list.
+          </Step>
+
+          <Step n={3} title="Turn it on" done={false} active={true}>
+            Toggle Internet Sharing on. If macOS asks to confirm, click Start.
+          </Step>
+        </ol>
+
+        <Card>
+          <div className="flex items-center gap-3">
+            <StatusDot variant="active" />
+            <p className="text-sm text-stone-500">
+              Waiting for Internet Sharing to start…
+            </p>
+          </div>
+        </Card>
+      </div>
+    );
+  }
+
   const deviceConnected = phase === "waiting_for_check";
 
   return (
     <div className="space-y-6">
       <div>
         <Eyebrow>Step 4 · Connect your Xteink</Eyebrow>
-        <Heading>Three quick steps on your device</Heading>
+        <Heading>Two quick steps on your device</Heading>
         <Subhead>
           Unlocker is now serving a local network for your Xteink. Follow the
           steps below — the install will start as soon as your device asks for
@@ -109,19 +157,6 @@ export function Connect({ state }: { state: StateKind }) {
 
         <Step
           n={2}
-          title="Install the certificate"
-          done={false}
-          active={deviceConnected}
-        >
-          On your Xteink's browser, open{" "}
-          <span className="break-all rounded bg-stone-100 px-1.5 py-0.5 font-mono text-xs text-stone-700">
-            {certUrl}
-          </span>{" "}
-          and follow the prompt to install. (One-time per device.)
-        </Step>
-
-        <Step
-          n={3}
           title="Tap Check for Updates"
           done={false}
           active={deviceConnected}

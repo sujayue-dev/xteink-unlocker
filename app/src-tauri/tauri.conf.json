@@ -46,8 +46,6 @@
       "signingIdentity": null,
       "providerShortName": "2H66PPM438"
     },
-    "resources": [
-      "LaunchDaemons/*"
-    ]
+    "resources": []
   }
 }

@@ -9,6 +9,7 @@ export type StateKind =
   | "selecting_firmware"
   | "downloading_firmware"
   | "setting_up_hotspot"
+  | "waiting_for_internet_sharing"
   | "awaiting_client"
   | "awaiting_device_request"
   | "awaiting_confirmation"

@@ -79,8 +79,7 @@ Unlocker presents a linear wizard. Each step has an explicit state in the orches
 
 Plain-language explanation of what Unlocker will do and what's at stake:
 
-- Modify network settings on the Mac, including creating a Wi-Fi hotspot. **Your Mac's Wi-Fi connection will be temporarily disconnected during the install.** Wired Ethernet, if present, is unaffected. The Wi-Fi connection is restored automatically when the install completes or is cancelled.
-- Install a temporary certificate authority on the user's device
+- Modify network settings on the Mac, including enabling Internet Sharing to create a Wi-Fi hotspot. **Your Mac's Wi-Fi connection will be temporarily disconnected during the install.** Wired Ethernet, if present, is unaffected. The Wi-Fi connection is restored automatically when the install completes or is cancelled.
 - Replace the firmware on the user's device with CrossPoint
 - **Risk disclosure specific to USB-locked devices.** If the user's device has the USB lockdown that motivated Unlocker's existence, recovery from a failed install is significantly harder than for older devices. The consent screen explains this honestly: in the worst case, a failed install can result in a permanently non-functional device. The user must check a separate "I understand the recovery limitations" box, in addition to the general consent box.
 - A "use the WebSerial flasher instead" link, with copy that helps the user decide whether WebSerial is even an option for them ("If you've already tried WebSerial and it failed because your device wouldn't enter download mode, that's the lockdown Unlocker is designed for — continue here.")
@@ -94,10 +93,7 @@ The user picks two things on this screen: device model and region (English/Chine
 - **Device model** (X3 / X4) determines which `device_type` value Unlocker expects in the OTA request and which model code (`X3` / `X4`) Unlocker uses when constructing the spoofed manifest's filename pattern, in case stock validates URL structure (D6).
 - **Region** (English overseas / Chinese domestic) determines which Xteink API hostname Unlocker spoofs (`api-prod.xteink.cc` for English, `api-prod.xteink.cn` for Chinese) and which locale code (`EN` / `CH`) appears in the spoofed filename. Unlocker only spoofs the one hostname matching the selected region — getting this wrong means the device's request goes to real Xteink (or nowhere) and Unlocker simply never receives anything to respond to.
 
-The user might not know whether their device is an X3 or X4 by name. The selection screen should make this trivial:
-
-- Two cards with the device's screen dimensions, photos, and any obvious physical differences
-- Plain-language helper text: "Not sure? Look at the back of your device — the model number is printed there."
+The user picks from two cards (Xteink X3 / Xteink X4). Helper text: "Not sure? Look at the back of your device — the model number is printed there."
 
 Region selection: "Which language did your device come with from the factory?" with two options (English and Chinese).
 
@@ -111,35 +107,43 @@ On selection, Unlocker downloads the chosen firmware blob, verifies its SHA-256 
 
 After this step completes, every subsequent step is fully offline. The Mac can lose its internet connection (and will, when the hotspot starts) without affecting the install.
 
-### 4.4 Connect — combined hotspot + cert + tap-Check
+### 4.4 Connect — hotspot + tap-Check
 
-After firmware download, Unlocker brings up the local network and shows the user a single screen with everything they need to do on their Xteink. The screen has three distinct phases driven by the orchestrator state:
+After firmware download, Unlocker brings up the local network and shows the user a single screen with everything they need to do. The screen has four distinct phases driven by the orchestrator state:
 
-**Phase A — preparing/hotspot starting.** While Unlocker is running `feth` create + Internet Sharing, the screen shows "Setting up the local network…" with a progress bar.
+**Phase A — preparing/hotspot starting.** Unlocker creates a `feth` virtual interface and writes the Internet Sharing NAT plist. The screen shows "Setting up the local network…" with a progress bar.
 
-**Phase B — connect and install.** Once the bridge is up, the screen shows:
+**Phase B — enable Internet Sharing.** Unlocker cannot programmatically start Internet Sharing on modern macOS (launchctl kickstart is no longer reliable). Instead, it shows the user step-by-step instructions to enable it manually:
+
+1. Open **System Settings → General → Sharing → Internet Sharing**
+2. Set **Share your connection from** to `feth7` and check **Wi-Fi** in the "To devices using" list
+3. Toggle Internet Sharing on
+
+Unlocker polls for `bridge100` to appear and auto-advances once it does (up to 5 minutes).
+
+**Phase C — connect device.** Once the bridge is up, the screen shows:
 
 - **SSID** and **password** (top, in two info boxes)
 - **Step 1:** Join the network on your Xteink — checks off when a DHCP lease for an Espressif MAC appears
-- **Step 2:** Install the certificate — instructs the user to open `http://<bridge_ip>/unlocker-root.pem` in the Xteink's browser and follow the install prompt
-- **Step 3:** Tap Settings → System → Check for Updates on the Xteink — Unlocker auto-advances the moment the manifest request hits its HTTP server
+- **Step 2:** Tap Settings → System → Check for Updates on the Xteink — Unlocker auto-advances the moment the manifest request hits its HTTPS server
 
-There is no separate "Confirm and install" step. The act of tapping Check for Updates on the device *is* the user's confirmation. Unlocker's role is to make the three steps unambiguous and to advance the wizard without further user clicks.
+There is no separate "Confirm and install" step. The act of tapping Check for Updates on the device *is* the user's confirmation.
+
+**Phase D — waiting for check.** After device joins, the helper installs a `pfctl` anchor redirecting bridge100 UDP/TCP port 53 to its internal DNS listener on port 5353, and spawns DNS, HTTP, and HTTPS servers bound to the bridge IP.
 
 **Hotspot mechanics:**
 
 1. The privileged helper creates a `feth` (fake ethernet) interface configured with `10.99.99.1/24`, satisfying Internet Sharing's requirement for an upstream interface without needing a phone tether or Ethernet adapter.
-2. The helper writes `/Library/Preferences/SystemConfiguration/com.apple.nat.plist` and `launchctl kickstart`s `com.apple.InternetSharing`. `bridge100` comes up; the Wi-Fi card reconfigures into AP mode.
-3. The helper installs a `pfctl` anchor redirecting bridge100 UDP/TCP port 53 to its internal DNS listener on port 5353.
-4. The helper spawns DNS, HTTP, and HTTPS servers bound to the bridge IP.
-
-> **Discovery note (D11):** Internet Sharing's behaviour with a `feth` upstream interface needs empirical confirmation on macOS 14 (Sonoma) and 15 (Sequoia). If recent macOS versions reject `feth` as an upstream, Unlocker's fallback is to roll a custom AP setup using `airport` for the Wi-Fi side and `bootpd` for DHCP, bypassing Internet Sharing entirely. More work in the helper, but no fundamental blocker. Test before claiming the virtual-interface approach is viable.
+2. The helper writes `/Library/Preferences/SystemConfiguration/com.apple.nat.plist` with the hotspot SSID and password configured for the `feth` upstream.
+3. The user manually enables Internet Sharing in System Settings. `bridge100` comes up; the Wi-Fi card reconfigures into AP mode.
+4. The helper installs a `pfctl` anchor redirecting bridge100 UDP/TCP port 53 to its internal DNS listener on port 5353.
+5. The helper spawns DNS, HTTP, and HTTPS servers bound to the bridge IP. HTTPS uses a self-signed certificate — stock Xteink firmware does not validate TLS certificates during OTA checks.
 
 **DHCP watching.** The helper polls `/var/db/dhcpd_leases` for new leases on the bridge interface. When a lease appears with a MAC matching the Espressif OUI range, Unlocker checks off Step 1 and surfaces the device IP next to it.
 
 **Manifest detection.** When the device's `GET /api/v1/check-update` request hits the helper's HTTPS server, the helper signals the unprivileged main via the `WaitManifest` RPC, which advances the orchestrator out of `AwaitingDeviceRequest` and into `Serving`.
 
-**Misconfiguration safety.** If the user picked the wrong model or region in §4.2, the device's request will go to a hostname Unlocker isn't spoofing, and nothing reaches Unlocker at all. The Connect screen will sit on Step 3 indefinitely. After a 5-minute timeout, Unlocker surfaces a diagnostic with the most likely cause ("If your device is running Chinese firmware, go back and select Chinese in the previous step.").
+**Misconfiguration safety.** If the user picked the wrong model or region in §4.2, the device's request will go to a hostname Unlocker isn't spoofing, and nothing reaches Unlocker at all. The Connect screen will sit on Step 2 indefinitely. After a 5-minute timeout, Unlocker surfaces a diagnostic with the most likely cause ("If your device is running Chinese firmware, go back and select Chinese in the previous step.").
 
 ### 4.5 Install progress
 
@@ -174,7 +178,6 @@ Unlocker:
 
 - Stops its DNS and HTTPS servers
 - Removes the `pfctl` redirect rules
-- Walks the user through removing the temporary CA from their device
 - Walks the user through disabling Internet Sharing on the Mac
 - Offers to delete cached firmware blobs and session logs (default: keep, in case the user wants to share for debugging)
 
@@ -282,7 +285,7 @@ The DMG does not bundle any firmware. Reasons: keeps the DMG small (~10MB), avoi
 
 Unlocker is an official CrossPoint project. It lives at github.com/crosspoint-reader/xteink-unlocker, is signed by the CrossPoint signing key, distributed from crosspointreader.com, and links back to the project's existing channels (GitHub Issues, community). It is not a third-party tool.
 
-This matters for the trust model in §9: users are running a privileged installer that touches their network and installs a CA. They should be running it because it's the project's tool, not because it's a randomly-attributed binary on the internet.
+This matters for the trust model in §9: users are running a privileged installer that touches their network and flashes firmware. They should be running it because it's the project's tool, not because it's a randomly-attributed binary on the internet.
 
 ---
 
@@ -301,7 +304,6 @@ This matters for the trust model in §9: users are running a privileged installe
 │                             │  ┌──────▼─────────────────────────────────┐   │ │
 │                             │  │ User-process subsystems                │   │ │
 │                             │  │  - Catalog client (reqwest)            │   │ │
-│                             │  │  - CA / cert generation (rcgen)        │   │ │
 │                             │  │  - Helper RPC client                   │   │ │
 │                             │  │  - Session logger                      │   │ │
 │                             │  └─────────────────────┬──────────────────┘   │ │
@@ -310,14 +312,13 @@ This matters for the trust model in §9: users are running a privileged installe
                                                          │ JSON-RPC over
                                                          │ Unix domain socket
 ┌────────────────────────────────────────────────────────▼────────────────────────┐
-│              Privileged helper (LaunchDaemon, runs as root)                      │
+│              Privileged helper (runs as root via password prompt)                │
 │                                                                                  │
 │  System-level ops:                  Spoofing servers (bound to bridge IP):       │
 │   - feth virtual upstream             - DNS (hickory) on :5353 (← pfctl 53)      │
-│   - Internet Sharing via plist        - HTTP (axum) on :80                       │
-│     + launchctl                       - HTTPS (axum + rustls) on :443            │
-│   - pfctl anchor (53 → 5353)            with leaf cert minted from main's        │
-│   - dhcpd_leases polling                root CA over RPC                         │
+│   - Internet Sharing NAT plist        - HTTP (axum) on :80                       │
+│   - pfctl anchor (53 → 5353)          - HTTPS (axum + rustls) on :443            │
+│   - dhcpd_leases polling                with self-signed cert                    │
 │   - Crash-recovery state file                                                    │
 └──────────────────────────────────────────────┬─────────────────────────────────┘
                                                 │ Wi-Fi (bridge100)
@@ -328,16 +329,16 @@ This matters for the trust model in §9: users are running a privileged installe
                                       └──────────────────┘
 ```
 
-The privileged helper is a separate binary installed via `SMAppService` on first launch, with an explicit user consent prompt. It exposes a typed JSON-over-Unix-socket protocol with a small, enumerated surface — no arbitrary shell access. The helper owns *both* the macOS system-state operations *and* the spoofing servers themselves: ports 53/80/443 are privileged on macOS, and rather than juggle file-descriptor passing between processes, the servers run inside the helper and the unprivileged main drives them via RPC.
+The privileged helper is a separate binary launched via `osascript` with an administrator password prompt. It exposes a typed JSON-over-Unix-socket protocol with a small, enumerated surface — no arbitrary shell access. The helper owns *both* the macOS system-state operations *and* the spoofing servers themselves: ports 53/80/443 are privileged on macOS, and rather than juggle file-descriptor passing between processes, the servers run inside the helper and the unprivileged main drives them via RPC.
 
 Privileged operations exposed by the helper:
 
 - Creating, configuring, and destroying virtual `feth` interfaces (the synthetic upstream)
-- Writing `/Library/Preferences/SystemConfiguration/com.apple.nat.plist` and starting/stopping Internet Sharing via `launchctl`
+- Writing `/Library/Preferences/SystemConfiguration/com.apple.nat.plist` for Internet Sharing configuration
 - Installing and removing `pfctl` anchor rules (53 → 5353)
 - Reading `/var/db/dhcpd_leases`
 - Reading bridge interface state via `ifconfig`
-- `ArmServers` / `DisarmServers` — start/stop the DNS, HTTP, and HTTPS servers bound to the bridge IP. The unprivileged main passes in the firmware blob path, manifest contents, and the root CA's cert+key PEMs; the helper mints its own leaf cert in process.
+- `ArmServers` / `DisarmServers` — start/stop the DNS, HTTP, and HTTPS servers bound to the bridge IP. The unprivileged main passes in the firmware blob path and manifest contents; the helper generates a self-signed certificate for the spoofed hostname.
 - `WaitManifest` / `WaitFirmware` — long-blocking RPCs that return when the helper's HTTP server sees a manifest request or completes a firmware stream. Each call uses its own Unix-socket connection so they don't queue behind other ops.
 
 Every helper operation is reversible and tracked in `/var/db/com.sofriendly.crosspoint.unlocker.helper.state.json`. On launch, the helper reads that file and reverses anything left in place by a prior crash.
@@ -361,17 +362,19 @@ DownloadingFirmware ────────────────────
   │ download complete, sha256 verified   │ download fails / hash mismatch →
   ▼                                      │ retry / cancel
 SettingUpHotspot ───────────────────────┤
-  │ feth created, IS started, bridge100  │ helper failure → fall back path
-  │ up, Wi-Fi reconfigured to AP mode,   │ or Failed
-  │ pfctl + DNS/HTTP/HTTPS armed         │
+  │ feth created, NAT plist written      │ helper failure → Failed
+  ▼                                      │
+WaitingForInternetSharing ─────────────┤
+  │ user enables Internet Sharing in     │ timeout (5min) → diagnostic
+  │ System Settings; bridge100 appears   │
   ▼                                      │
 AwaitingClient ─────────────────────────┤
   │ DHCP lease seen for Espressif MAC    │ timeout (5min) → diagnostic + retry
   ▼                                      │
 AwaitingDeviceRequest ──────────────────┤
-  │ on-screen instructions: install cert │ timeout (5min) → diagnostic
-  │ + tap Check for Updates. Manifest    │ ("did you pick the right region?")
-  │ request hits HTTPS server.           │
+  │ on-screen instructions: tap Check    │ timeout (5min) → diagnostic
+  │ for Updates. Manifest request hits   │ ("did you pick the right region?")
+  │ HTTPS server.                        │
   ▼                                      │
 Serving                                 │
   │ device fetches binary                │
@@ -396,7 +399,7 @@ States are exposed to the UI via Tauri events. The UI is a state-driven view —
 
 **Network detector.** Uses `getifaddrs(3)` via the `nix` crate plus macOS `SystemConfiguration` framework calls (via `system-configuration` crate) to enumerate interfaces and detect when `bridge100` (the AP-side bridge interface) and `feth0` (the synthetic upstream) appear or disappear. Polls every 500ms during transient states; idles otherwise. No longer concerned with detecting user-supplied upstream interfaces, since Unlocker creates its own.
 
-**Hotspot controller.** Orchestrates the privileged helper to: (1) create the `feth` virtual upstream, (2) write the Internet Sharing config plist, (3) start the service, (4) confirm `bridge100` is up. Reverses all of this on teardown. Maintains state in a small file at `~/Library/Application Support/XteinkUnlocker/hotspot-state.json` so that if Unlocker crashes, the next launch can detect leftover state and clean it up automatically.
+**Hotspot controller.** Orchestrates the privileged helper to: (1) create the `feth` virtual upstream, (2) write the Internet Sharing config plist. The user then manually enables Internet Sharing in System Settings. Unlocker polls for `bridge100` to appear. On teardown, the helper reverses all changes. Maintains state in a small file at `~/Library/Application Support/XteinkUnlocker/hotspot-state.json` so that if Unlocker crashes, the next launch can detect leftover state and clean it up automatically.
 
 **DNS server (in helper).** Built on `hickory-proto`. Bound to the bridge IP on port 5353 (the helper's `pfctl` anchor redirects 53 → 5353 to work around Internet Sharing's built-in DNS). For the *active* intercept hostname (`api-prod.xteink.cc` for English-region users OR `api-prod.xteink.cn` for Chinese-region users — never both), responds with the bridge IP. For all other queries, forwards upstream via `hickory-resolver` against Cloudflare 1.1.1.1. Every query is logged.
 
@@ -404,7 +407,6 @@ States are exposed to the UI via Tauri events. The UI is a state-driven view —
 
 - `GET /api/v1/check-update` — generates manifest based on Host header and `device_type` parameter; fires `on_manifest_request` notify
 - `GET /firmware/{filename}` — streams the matching firmware blob with correct headers; fires `on_firmware_streamed` notify when the stream ends
-- `GET /unlocker-root.pem` — serves the per-install root CA so the user can install it on the Xteink before tapping Check for Updates
 - `*` — 404 with the path logged for diagnostics
 
 The manifest handler is approximately:
@@ -469,7 +471,7 @@ async fn serve_firmware(
 }
 ```
 
-**CA / cert manager.** `rcgen` to mint a per-install root CA. The unprivileged main process generates the root CA in memory at app launch and passes its cert+key PEMs to the helper as part of the `ArmServers` RPC; the helper mints a leaf cert for the active locale's hostname and uses it for the HTTPS listener. The root's cert PEM is exposed at `http://<bridge_ip>/unlocker-root.pem` for the user to fetch on the Xteink. (Spec note: storing the root in Keychain with biometry, per §9.2, is not yet implemented — the CA is in-memory and regenerated each launch. Tracked as a v0.2 hardening task.)
+**TLS for HTTPS spoofing.** The helper generates a self-signed certificate (via `rcgen`) for the active locale's API hostname when arming servers. Stock Xteink firmware does not validate TLS certificates during OTA checks, so a self-signed cert is sufficient. No root CA or certificate installation on the device is required.
 
 **Catalog client.** Two responsibilities:
 
@@ -564,8 +566,7 @@ Unlocker takes privileged actions on behalf of the user. The trust model is expl
 
 ### 9.1 What Unlocker does that requires trust
 
-- Runs as root (via the privileged helper) for port binding and `pfctl` rule installation
-- Generates and installs a root CA — locally, scoped to the user's keychain, not the system trust store unless the user explicitly opts in
+- Runs as root (via the privileged helper, launched with an admin password prompt) for port binding and `pfctl` rule installation
 - Streams a firmware binary that will be flashed to the user's device
 
 ### 9.2 What Unlocker does to be worthy of that trust
@@ -573,12 +574,9 @@ Unlocker takes privileged actions on behalf of the user. The trust model is expl
 - **Source-available, MIT-licensed, in the CrossPoint org.** Anyone can audit.
 - **Reproducible builds.** The signed binary on crosspointreader.com matches a public commit hash and CI build artifact. Users can verify.
 - **Signed releases.** Unlocker is notarized by Apple (DMG signing) and additionally signed by the CrossPoint project's release signing key. Both signatures are verified at launch.
-- **Per-install root CAs.** Every Unlocker installation generates its own CA. There is no shared key. Compromise of one installation does not affect others.
-- **Restrictive Keychain ACLs.** The CA private key is stored with `kSecAccessControlBiometryCurrentSet` or equivalent — Touch ID required for use.
-- **CA never installed on the system trust store by default.** Only on the target Xteink. User must opt in via a clearly-labelled toggle to also install on the Mac.
 - **Firmware verified by hash.** Unlocker computes SHA-256 on every downloaded firmware blob and uses it as the cache key. If the catalog exposes an expected `firmware_sha256`, Unlocker verifies the download against it and rejects mismatches. Cache reads re-verify before use.
-- **Smallest possible privileged surface.** The privileged helper exposes four operations. No shell-out. No file I/O outside an explicit allowlist. No network access.
-- **Teardown removes everything.** On clean exit, Unlocker removes `pfctl` rules, removes its CA from the device (with user assistance), and offers to remove from Keychain.
+- **Smallest possible privileged surface.** The privileged helper exposes a small set of enumerated operations. No arbitrary shell access. No file I/O outside an explicit allowlist.
+- **Teardown removes everything.** On clean exit, Unlocker removes `pfctl` rules, destroys the virtual interface, and restores the NAT plist. The user is guided to disable Internet Sharing.
 
 ### 9.3 Threat model exclusions
 
@@ -601,9 +599,8 @@ Each is a first-class UI state with copy written for a non-technical user.
 | Firmware download interrupted | Stream closes before `Content-Length` bytes sent | "Download interrupted. Resume?" with Resume / Retry / Cancel buttons | Auto-resume via HTTP Range; manual retry available |
 | Firmware SHA-256 mismatch | Hash check fails after download | "The firmware download appears damaged. This could be a network issue or a security concern." with retry and report-issue buttons | Re-download; if persistent, raise a project-level alert |
 | Virtual interface creation fails | `feth0` doesn't appear after privileged helper call | "Couldn't set up the local network. This sometimes happens on macOS [version]. Trying alternative method..." → falls back to custom AP setup if implemented, or to phone-tether mode with explicit instructions | Auto-fallback; manual mode as last resort |
-| Internet Sharing won't start | `bridge100` doesn't appear within 30s of helper call | "Local network setup failed. Here's what to check." with diagnostic info and retry button | Auto-cleanup of partial state; manual retry |
+| Internet Sharing not enabled | `bridge100` doesn't appear within 5 min of showing instructions | "Internet Sharing didn't start. Make sure you selected feth7 as the source and Wi-Fi as the destination in System Settings." with troubleshooting steps | User follows instructions; auto-progresses when bridge100 appears |
 | Wi-Fi already disabled | Wi-Fi power state off when hotspot setup begins | "Please turn Wi-Fi on. Unlocker needs Wi-Fi to create the local network for your device." | User turns Wi-Fi on; auto-progresses |
-| Internet Sharing won't enable | `bridge100` doesn't appear within 60s of user clicking "I enabled it" | "Internet Sharing didn't start. Here's what to check." with troubleshooting steps | Manual recovery; offer to retry |
 | Device never appears on bridge | No DHCP lease within 5 min of hotspot up | "Is your Xteink connected to the SSID?" with on-device steps to verify | User reconnects device; auto-progresses |
 | Device never sends check-update | No request received within 5 min of arming | "Tap Settings → System → Check for Updates on your Xteink" with screenshots | User triggers check; auto-progresses |
 | Stock firmware sends unknown request | Catch-all handler hit during Armed state | "Your Xteink is using a newer protocol than Unlocker knows about" with link to file an issue and the captured request payload | User reports; Unlocker cannot proceed |
@@ -627,12 +624,9 @@ Each is a first-class UI state with copy written for a non-technical user.
 - **`tokio`** — async runtime
 - **`hickory-dns`** — DNS server
 - **`axum` + `rustls`** — HTTP/HTTPS server
-- **`rcgen`** — certificate generation
+- **`rcgen`** — self-signed certificate generation for HTTPS spoofing
 - **`reqwest`** — outbound HTTPS for catalog fetching
 - **`tracing` + `tracing-subscriber`** — structured logging
-- **`security-framework`** — macOS Keychain access
-- **`system-configuration`** — macOS network configuration introspection
-- **`nix`** — Unix syscall bindings
 - **`serde` + `toml`** — configuration
 
 ### 11.3 Privileged helper
@@ -640,7 +634,7 @@ Each is a first-class UI state with copy written for a non-technical user.
 - Separate Rust binary
 - Communicates with main process via Unix domain socket
 - Typed JSON-RPC protocol
-- Installed via `SMAppService` (macOS 13+)
+- Launched as root via `osascript` with admin password prompt
 
 ### 11.4 Build and release
 
@@ -690,10 +684,8 @@ These are empirical questions that gate or shape implementation. Each is a small
 | D8 | Does CrossPoint use runtime locale or build-time locale? | Read CrossPoint source / ask maintainers | Determines artifact count (2 vs 4) |
 | D9 | What's the X3 vs X4 USB OTA layout? | Read existing WebSerial flasher source | Sanity check for OTA partition assumptions |
 | D10 | Is there a recovery partition? | Inspect partition table from a flash backup | Informs failure-mode messaging |
-| D11 | Does Internet Sharing accept `feth` as upstream on macOS 14 and 15? | Privileged helper creates `feth0`, configures Internet Sharing config plist, attempts to start service. Verify `bridge100` comes up and a Wi-Fi client can join. | **Critical for design.** If yes: clean self-contained flow as designed. If no: fall back to custom AP setup using `airport` + `bootpd`, or in worst case reinstate the phone-tether flow. |
+| D11 | Does Internet Sharing accept `feth` as upstream on macOS 14+? | **Settled.** `feth` is accepted as upstream on macOS 14–26, but `launchctl kickstart` is no longer reliable for starting the service programmatically. Solution: user manually enables Internet Sharing in System Settings. Unlocker writes the NAT plist and polls for `bridge100`. | N/A — resolved |
 | D12 | What's the actual size of the stock OTA `.bin` files vs. the OTA partition size? | Inspect partition table from a flash backup; compare to the 6.3MB observed binary size | Confirms there's headroom for CrossPoint's binary, which may be larger or smaller than stock |
-
-D11 is the real blocker. Everything else is information that shapes implementation but doesn't gate the build.
 
 ---
 
@@ -762,19 +754,16 @@ The CrossPoint project should have a legal posture prepared. Recommended posture
 
 - This document
 - Cargo workspace: `unlocker-core`, `unlocker-helper`, Tauri app
-- Privileged helper with real macOS shell-outs (`feth` create/destroy via `ifconfig`, Internet Sharing via NAT plist + `launchctl kickstart`, `pfctl` anchor for DNS port redirect, `dhcpd_leases` parsing, crash-recovery state file)
-- DNS / HTTP / HTTPS spoofing servers running inside the helper, bound to the bridge IP
-- Per-install root CA generated in the unprivileged main and passed to the helper over RPC for leaf-cert signing
-- React + Tailwind wizard: Consent → Device + Region → Channel → Connect (combined hotspot + cert + tap-Check) → Install progress → Verify → Done
-- `SMAppService` bindings via `objc2` for installing/registering the helper LaunchDaemon
+- Privileged helper with real macOS shell-outs (`feth` create/destroy via `ifconfig`, Internet Sharing via NAT plist, `pfctl` anchor for DNS port redirect, `dhcpd_leases` parsing, crash-recovery state file)
+- DNS / HTTP / HTTPS spoofing servers running inside the helper, bound to the bridge IP, with self-signed TLS cert
+- Helper launched via `osascript` admin password prompt (replaced SMAppService/LaunchDaemon approach due to provisioning profile requirements on macOS 26)
+- React + Tailwind wizard: Consent → Device + Region → Channel → Connect (hotspot setup + manual Internet Sharing enable + tap-Check) → Install progress → Verify → Done
 - `cargo check --workspace` clean on latest crate versions; helper builds release; frontend builds via Vite
 
 ### v0.2 — End-to-end on real hardware
 
-- D11 settled (does macOS 14/15 Internet Sharing accept `feth` as upstream? if not, custom AP via `airport`+`bootpd`)
 - First successful install of CrossPoint on a stock Xteink X3 or X4 by an engineer
-- Spec revised based on findings (manifest schema variations, filename validation, etc.)
-- CA stored in Keychain with biometry gate (per §9.2)
+- Spec revised based on findings (manifest schema variations, filename validation, TLS cert validation behaviour)
 - Failure-mode coverage per §10 (named recovery screens with state-specific copy + timeouts)
 - `~/Library/Application Support/XteinkUnlocker/hotspot-state.json` for crash recovery on the main side too (helper already has its own)
 

@@ -1,10 +1,6 @@
-#[cfg(target_os = "macos")]
-mod smapp;
-
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
-use unlocker_core::cert::{generate_root_ca, RootCa};
+use tauri::{AppHandle, Emitter, Manager, State};
 use unlocker_core::helper::Helper;
 use unlocker_core::orchestrator::{Orchestrator, State as OrchState};
 use unlocker_core::runtime::{await_espressif_lease, ArmConfig, Runtime};
@@ -17,7 +13,6 @@ struct AppState {
     http: reqwest::Client,
     helper: Arc<Helper>,
     runtime: Arc<Runtime>,
-    root_ca: Arc<RootCa>,
 }
 
 #[tauri::command]
@@ -79,49 +74,57 @@ struct HelperStatus {
 
 #[tauri::command]
 async fn helper_status(state: State<'_, AppState>) -> Result<HelperStatus, String> {
-    #[cfg(target_os = "macos")]
-    {
-        let s = smapp::status();
-        let socket_reachable = state.helper.ping().await.is_ok();
-        Ok(HelperStatus {
-            installed: s.status == 1,
-            status_label: s.status_label.into(),
-            socket_reachable,
-        })
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = state;
-        Ok(HelperStatus {
-            installed: false,
-            status_label: "unsupported_platform".into(),
-            socket_reachable: false,
-        })
-    }
+    let socket_reachable = state.helper.ping().await.is_ok();
+    Ok(HelperStatus {
+        installed: socket_reachable,
+        status_label: if socket_reachable { "running" } else { "not_running" }.into(),
+        socket_reachable,
+    })
 }
 
 #[tauri::command]
-async fn install_helper() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        smapp::register()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("only supported on macOS".into())
+async fn install_helper(app: AppHandle) -> Result<(), String> {
+    let helper_path = app
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .parent()
+        .ok_or("can't resolve bundle path")?
+        .join("MacOS/unlocker-helper");
+
+    let path_str = helper_path
+        .to_str()
+        .ok_or("non-utf8 helper path")?
+        .replace('\'', "'\\''");
+
+    let script = format!(
+        "do shell script \"'{path_str}' &> /dev/null &\" with administrator privileges"
+    );
+
+    let status = tokio::process::Command::new("osascript")
+        .args(["-e", &script])
+        .status()
+        .await
+        .map_err(|e| format!("failed to run osascript: {e}"))?;
+
+    if status.success() {
+        // Give the helper a moment to start listening on the socket.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        Ok(())
+    } else {
+        Err("user cancelled or authorization failed".into())
     }
 }
 
 #[tauri::command]
 async fn uninstall_helper() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        smapp::unregister()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("only supported on macOS".into())
-    }
+    let script = "do shell script \"pkill -f unlocker-helper\" with administrator privileges";
+    tokio::process::Command::new("osascript")
+        .args(["-e", script])
+        .status()
+        .await
+        .map_err(|e| format!("failed to run osascript: {e}"))?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -168,10 +171,9 @@ async fn select_firmware(
     let http = state.http.clone();
     let runtime = state.runtime.clone();
     let helper = state.helper.clone();
-    let root = state.root_ca.clone();
 
     tokio::spawn(async move {
-        if let Err(e) = run_install(orch.clone(), log, http, runtime, helper, root, selection).await
+        if let Err(e) = run_install(orch.clone(), log, http, runtime, helper, selection).await
         {
             orch.fail(format!("{e:#}")).await;
         }
@@ -186,7 +188,6 @@ async fn run_install(
     http: reqwest::Client,
     runtime: Arc<Runtime>,
     helper: Arc<Helper>,
-    root: Arc<RootCa>,
     selection: Selection,
 ) -> anyhow::Result<()> {
     // ── Locate + cache + download firmware ──
@@ -220,7 +221,13 @@ async fn run_install(
     orch.transition(OrchState::SettingUpHotspot, None).await;
     let ssid = "CrossPoint-Setup".to_string();
     let psk = format!("xtu-{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
-    let info = runtime.start_hotspot(&helper, &ssid, &psk).await?;
+    runtime.prepare_hotspot(&helper, &ssid, &psk).await?;
+
+    // Wait for the user to enable Internet Sharing in System Settings.
+    orch.transition(OrchState::WaitingForInternetSharing, None).await;
+    log.push("info", "waiting for user to enable Internet Sharing", None).await;
+    let info = runtime.await_hotspot(&helper, &ssid, &psk, Duration::from_secs(300)).await?;
+
     orch.set_hotspot(info.ssid, info.psk, info.bridge_ip.to_string())
         .await;
     orch.transition(OrchState::AwaitingClient, None).await;
@@ -231,9 +238,8 @@ async fn run_install(
         .await;
     orch.set_device_ip(ip).await;
 
-    // ── Arm DNS + HTTP + HTTPS immediately so /unlocker-root.pem is reachable
-    //    from the device, and the manifest endpoint is ready when the user
-    //    eventually taps Check for Updates. ──
+    // ── Arm DNS + HTTP + HTTPS so the manifest endpoint is ready when the
+    //    user taps Check for Updates on the device. ──
     let bridge_ip: std::net::Ipv4Addr = orch
         .data()
         .await
@@ -251,11 +257,10 @@ async fn run_install(
         crosspoint_version: release.version.clone(),
         change_log: render_changelog(&release),
     };
-    runtime.arm(&helper, &root, arm_cfg).await?;
+    runtime.arm(&helper, arm_cfg).await?;
 
-    // Servers are armed and the device is on the hotspot. The Connect
-    // screen tells the user: install cert, then tap Check for Updates.
-    // We block here until the helper reports the manifest request.
+    // Servers are armed and the device is on the hotspot. We block here
+    // until the helper reports the manifest request.
     orch.transition(OrchState::AwaitingDeviceRequest, None).await;
     log.push("info", "armed; waiting for device check-update", None).await;
     helper.wait_manifest().await?;
@@ -326,7 +331,6 @@ pub fn run() {
         .expect("reqwest");
     let helper = Helper::new();
     let runtime = Runtime::new();
-    let root_ca = Arc::new(generate_root_ca().expect("root CA generation"));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -337,7 +341,6 @@ pub fn run() {
             http,
             helper: helper.clone(),
             runtime: runtime.clone(),
-            root_ca,
         })
         .setup(move |app| {
             let handle: AppHandle = app.handle().clone();

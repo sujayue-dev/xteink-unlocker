@@ -16,6 +16,7 @@ const STEPS: { id: string; label: string; states: StateKind[] }[] = [
     states: [
       "downloading_firmware",
       "setting_up_hotspot",
+      "waiting_for_internet_sharing",
       "awaiting_client",
       "awaiting_device_request",
     ],

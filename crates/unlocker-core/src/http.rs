@@ -1,16 +1,15 @@
 //! Manifest server.
 //!
 //! Two listeners on the bridge IP:
-//!   * port 80   — plain HTTP. Serves `/unlocker-root.pem` so the device can
-//!                 fetch the per-install root CA, and `/firmware/*.bin` (the
-//!                 download URL we hand back in the manifest is HTTP).
-//!   * port 443  — HTTPS with a leaf cert minted by our root CA, valid for
-//!                 both Xteink API hostnames. Handles `/api/v1/check-update`.
+//!   * port 80   — plain HTTP. Serves `/firmware/*.bin` (the download URL we
+//!                 hand back in the manifest is HTTP).
+//!   * port 443  — HTTPS with a self-signed cert for the spoofed API hostname.
+//!                 Handles `/api/v1/check-update`.
 //!
 //! Both listeners share the same axum router: stock can hit the manifest
 //! over either scheme, and we serve the binary over plain HTTP regardless.
 
-use crate::cert::LeafCert;
+use crate::cert::SelfSignedCert;
 use crate::types::{Locale, Model};
 use axum::{
     body::Body,
@@ -38,7 +37,6 @@ pub struct ServerConfig {
     pub firmware_sha256: String,
     pub crosspoint_version: String,
     pub change_log: String,
-    pub root_ca_pem: String,
     /// Notified on every manifest request. Orchestrator awaits the first
     /// notification to advance from AwaitingDeviceRequest.
     pub on_manifest_request: Arc<tokio::sync::Notify>,
@@ -79,7 +77,6 @@ pub fn router(cfg: Arc<ServerConfig>) -> Router {
     Router::new()
         .route("/api/v1/check-update", get(check_update))
         .route("/firmware/{filename}", get(serve_firmware))
-        .route("/unlocker-root.pem", get(serve_root_ca))
         .fallback(catch_all)
         .with_state(cfg)
 }
@@ -144,20 +141,6 @@ async fn serve_firmware(
         .into_response())
 }
 
-async fn serve_root_ca(State(cfg): State<Arc<ServerConfig>>) -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "application/x-pem-file"),
-            (
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=xteink-unlocker-root.pem",
-            ),
-        ],
-        cfg.root_ca_pem.clone(),
-    )
-        .into_response()
-}
-
 async fn catch_all(headers: HeaderMap, uri: axum::http::Uri) -> impl IntoResponse {
     tracing::warn!(?uri, ?headers, "unknown request");
     (StatusCode::NOT_FOUND, "not found")
@@ -181,8 +164,7 @@ impl ServerHandles {
 
 pub async fn start(
     cfg: Arc<ServerConfig>,
-    root_cert_pem: &str,
-    leaf: &LeafCert,
+    cert: &SelfSignedCert,
 ) -> anyhow::Result<ServerHandles> {
     let app = router(cfg.clone());
 
@@ -202,10 +184,12 @@ pub async fn start(
             .await
     });
 
-    // HTTPS listener with our minted leaf cert.
-    let leaf_chain_pem = format!("{}{}", leaf.cert_pem, root_cert_pem);
-    let tls = RustlsConfig::from_pem(leaf_chain_pem.into_bytes(), leaf.key_pem.clone().into_bytes())
-        .await?;
+    // HTTPS listener with self-signed cert.
+    let tls = RustlsConfig::from_pem(
+        cert.cert_pem.clone().into_bytes(),
+        cert.key_pem.clone().into_bytes(),
+    )
+    .await?;
     let app_https = app.clone();
     let h2 = https_handle.clone();
     let https = tokio::spawn(async move {

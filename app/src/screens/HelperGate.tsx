@@ -16,23 +16,15 @@ interface HelperStatus {
   socket_reachable: boolean;
 }
 
-type Phase =
-  | "checking"
-  | "needs_install"
-  | "registering"
-  | "needs_approval"
-  | "ready"
-  | "error";
+type Phase = "checking" | "needs_install" | "registering" | "ready" | "error";
 
 const checkStatus = () => invoke<HelperStatus>("helper_status");
 const installHelper = () => invoke<void>("install_helper");
 
 export function HelperGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>("checking");
-  const [status, setStatus] = useState<HelperStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Poll status. Re-runs whenever phase changes to a polling phase.
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -41,27 +33,16 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
       try {
         const s = await checkStatus();
         if (cancelled) return;
-        setStatus(s);
-        if (s.installed && s.socket_reachable) {
+        if (s.socket_reachable) {
           setPhase("ready");
           return;
         }
-        if (s.status_label === "requires_approval") {
-          setPhase("needs_approval");
-        } else if (
-          phase === "checking" ||
-          phase === "registering" ||
-          phase === "needs_approval"
-        ) {
-          if (s.status_label === "not_registered" && phase === "checking") {
-            setPhase("needs_install");
-            return;
-          }
-          // Keep polling — the helper may still be starting after registration.
-          timer = setTimeout(tick, 1500);
-        } else {
+        if (phase === "checking") {
           setPhase("needs_install");
+          return;
         }
+        // Still waiting for the helper to come up after install.
+        timer = setTimeout(tick, 1500);
       } catch (e) {
         if (cancelled) return;
         setError(String(e));
@@ -69,7 +50,7 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
       }
     }
 
-    if (phase === "checking" || phase === "registering" || phase === "needs_approval") {
+    if (phase === "checking" || phase === "registering") {
       tick();
     }
 
@@ -84,6 +65,8 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
     setPhase("registering");
     try {
       await installHelper();
+      // install_helper waits 500ms for the socket; re-check now.
+      setPhase("checking");
     } catch (e) {
       setError(String(e));
       setPhase("error");
@@ -106,11 +89,11 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
       <main className="mt-10 space-y-6">
         <div>
           <Eyebrow>One-time setup</Eyebrow>
-          <Heading>Approve the privileged helper</Heading>
+          <Heading>Start the privileged helper</Heading>
           <Subhead>
             Unlocker needs a small background helper to manage your Mac's
-            network during the install. The helper is signed by us and only
-            runs while Unlocker is open. You only do this once.
+            network during the install. macOS will ask for your password to
+            authorize it.
           </Subhead>
         </div>
 
@@ -123,16 +106,14 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
         {phase === "needs_install" && (
           <Card>
             <h2 className="font-serif text-lg font-medium text-stone-900">
-              Install the helper
+              Start the helper
             </h2>
             <p className="mt-2 text-sm text-stone-600">
-              When you click Install, macOS will register the helper and may
-              ask you to approve it in System Settings → Login Items. After
-              you approve, return here and Unlocker will continue
-              automatically.
+              Click Start and enter your Mac password when prompted. The helper
+              runs only while Unlocker is open.
             </p>
             <div className="mt-5 flex justify-end">
-              <PrimaryButton onClick={onInstall}>Install helper</PrimaryButton>
+              <PrimaryButton onClick={onInstall}>Start helper</PrimaryButton>
             </div>
           </Card>
         )}
@@ -140,36 +121,13 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
         {phase === "registering" && (
           <Card>
             <p className="text-sm text-stone-500">
-              Registering helper… If macOS shows a dialog, follow the prompt.
+              Starting helper… Enter your password if macOS prompts you.
             </p>
-          </Card>
-        )}
-
-        {phase === "needs_approval" && (
-          <Card>
-            <h2 className="font-serif text-lg font-medium text-stone-900">
-              Approve in System Settings
-            </h2>
-            <p className="mt-2 text-sm text-stone-600">
-              The helper is registered but waiting for your approval. Open{" "}
-              <strong>System Settings → General → Login Items &amp; Extensions</strong>
-              , find <span className="font-mono">Xteink Unlocker</span> under
-              Allow in the Background, and turn it on. Unlocker will continue
-              automatically.
-            </p>
-            <p className="mt-3 text-xs text-stone-400">
-              Current status: {status?.status_label ?? "unknown"}
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
-              <SecondaryButton onClick={() => setPhase("checking")}>
-                I approved it
-              </SecondaryButton>
-            </div>
           </Card>
         )}
 
         {phase === "error" && (
-          <Callout variant="error" title="Couldn't set up the helper">
+          <Callout variant="error" title="Couldn't start the helper">
             {error ?? "Unknown error."}
             <div className="mt-3 flex gap-2">
               <SecondaryButton onClick={() => setPhase("checking")}>

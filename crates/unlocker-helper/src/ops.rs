@@ -29,16 +29,21 @@ async fn sh(prog: &str, args: &[&str]) -> Result<String> {
 
 // ── feth (synthetic upstream interface) ──────────────────────────────────────
 
+const FETH_SERVICE_NAME: &str = "Xteink Unlocker";
+
 pub async fn feth_create(name: &str, ip: &str, prefix: u8) -> Result<()> {
     state::mutate(|s| s.feth_interface = Some(name.to_string())).await?;
     // Create. If it already exists (recovery), ifconfig errors but we proceed.
     let _ = sh("ifconfig", &[name, "create"]).await;
     sh("ifconfig", &[name, "inet", &format!("{ip}/{prefix}"), "up"]).await?;
+    // Give the interface a friendly name in System Settings.
+    let _ = sh("networksetup", &["-createnetworkservice", FETH_SERVICE_NAME, name]).await;
     tracing::info!(%name, %ip, prefix, "feth created");
     Ok(())
 }
 
 pub async fn feth_destroy(name: &str) -> Result<()> {
+    let _ = sh("networksetup", &["-removenetworkservice", FETH_SERVICE_NAME]).await;
     let _ = sh("ifconfig", &[name, "destroy"]).await;
     state::mutate(|s| s.feth_interface = None).await?;
     tracing::info!(%name, "feth destroyed");

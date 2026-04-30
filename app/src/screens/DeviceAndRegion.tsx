@@ -35,13 +35,11 @@ export function DeviceAndRegion() {
         <div className="mt-4 grid grid-cols-2 gap-3">
           <DeviceCard
             title="Xteink X3"
-            subtitle="6 inch · smaller body"
             selected={model === "x3"}
             onClick={() => setModel("x3")}
           />
           <DeviceCard
             title="Xteink X4"
-            subtitle="7.8 inch · larger body"
             selected={model === "x4"}
             onClick={() => setModel("x4")}
           />
@@ -90,7 +88,7 @@ function DeviceCard({
   onClick,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -107,7 +105,9 @@ function DeviceCard({
       <div className="font-serif text-base font-medium text-stone-900">
         {title}
       </div>
-      <div className="mt-1 text-xs text-stone-500">{subtitle}</div>
+      {subtitle && (
+        <div className="mt-1 text-sm text-stone-500">{subtitle}</div>
+      )}
     </button>
   );
 }

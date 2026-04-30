@@ -12,6 +12,7 @@ pub enum State {
     SelectingFirmware,
     DownloadingFirmware,
     SettingUpHotspot,
+    WaitingForInternetSharing,
     AwaitingClient,
     AwaitingDeviceRequest,
     AwaitingConfirmation,

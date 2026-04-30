@@ -56,7 +56,7 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
     grouped.beta.length === 0
       ? "none"
       : grouped.beta.length === 1
-        ? "install"
+        ? "download"
         : "expand";
 
   return (
@@ -148,7 +148,7 @@ function ChannelCard({
           loading ? "bg-brand-500 text-white" : "bg-stone-100 text-stone-600"
         }`}
       >
-        {loading ? "Installing…" : "Install"}
+        {loading ? "Downloading…" : "Download"}
       </span>
     </button>
   );
@@ -166,11 +166,11 @@ function BetaCard({
   open: boolean;
   onToggle: () => void;
   onPick: (r: CrossPointRelease) => void;
-  tapBehavior: "none" | "install" | "expand";
+  tapBehavior: "none" | "download" | "expand";
   pendingId: string | null;
 }) {
   const handleClick = () => {
-    if (tapBehavior === "install") onPick(betas[0]!);
+    if (tapBehavior === "download") onPick(betas[0]!);
     else if (tapBehavior === "expand") onToggle();
   };
 
@@ -201,7 +201,7 @@ function BetaCard({
           <div className="mt-2 font-mono text-xs text-stone-400">
             {tapBehavior === "none"
               ? "no betas right now"
-              : tapBehavior === "install"
+              : tapBehavior === "download"
                 ? `1 active: ${betas[0]!.name}`
                 : `${betas.length} active builds`}
           </div>
@@ -214,12 +214,12 @@ function BetaCard({
           }`}
         >
           {installingThisCard
-            ? "Installing…"
+            ? "Downloading…"
             : tapBehavior === "expand"
               ? open
                 ? "Hide"
                 : "Choose"
-              : "Install"}
+              : "Download"}
         </span>
       </button>
 
@@ -255,7 +255,7 @@ function BetaCard({
                         : "bg-stone-100 text-stone-600"
                     }`}
                   >
-                    {isPending ? "Installing…" : "Install"}
+                    {isPending ? "Downloading…" : "Download"}
                   </span>
                 </button>
               </li>

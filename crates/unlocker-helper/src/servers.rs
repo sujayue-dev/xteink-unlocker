@@ -9,7 +9,7 @@ use anyhow::{anyhow, Result};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::sync::{Mutex, Notify};
-use unlocker_core::cert::mint_leaf_from_pem;
+use unlocker_core::cert::generate_self_signed;
 use unlocker_core::dns::{self, DnsConfig, DnsHandle};
 use unlocker_core::http::{self, ServerConfig, ServerHandles};
 use unlocker_core::types::ArmServerSpec;
@@ -43,7 +43,7 @@ impl ServerHolder {
             .map_err(|_| anyhow!("invalid bridge_ip: {}", spec.bridge_ip))?;
 
         let host = spec.locale.api_host();
-        let leaf = mint_leaf_from_pem(&spec.root_ca_cert_pem, &spec.root_ca_key_pem, &[host])?;
+        let cert = generate_self_signed(&[host])?;
 
         let dns_cfg = DnsConfig::for_locale(spec.locale, bridge_ip, spec.dns_internal_port);
         let dns_handle = dns::start(dns_cfg).await?;
@@ -61,11 +61,10 @@ impl ServerHolder {
             firmware_sha256: spec.firmware_sha256,
             crosspoint_version: spec.crosspoint_version,
             change_log: spec.change_log,
-            root_ca_pem: spec.root_ca_cert_pem.clone(),
             on_manifest_request: on_manifest.clone(),
             on_firmware_streamed: on_firmware.clone(),
         });
-        let http_handles = http::start(http_cfg, &spec.root_ca_cert_pem, &leaf).await?;
+        let http_handles = http::start(http_cfg, &cert).await?;
 
         *guard = Some(ServerSet {
             dns: Some(dns_handle),

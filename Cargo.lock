@@ -5187,8 +5187,6 @@ name = "unlocker-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "objc2",
- "objc2-foundation",
  "reqwest",
  "serde",
  "serde_json",

@@ -102,7 +102,5 @@ pub struct ArmServerSpec {
     pub firmware_sha256: String,
     pub crosspoint_version: String,
     pub change_log: String,
-    pub root_ca_cert_pem: String,
-    pub root_ca_key_pem: String,
     pub dns_internal_port: u16,
 }

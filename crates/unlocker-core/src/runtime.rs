@@ -4,7 +4,6 @@
 //! Servers themselves run inside the helper (it's root, so it can bind
 //! ports 53/80/443). We just sequence the RPCs and watch DHCP leases.
 
-use crate::cert::RootCa;
 use crate::helper::Helper;
 use crate::types::{ArmServerSpec, Locale, Model};
 use anyhow::{anyhow, Result};
@@ -27,15 +26,29 @@ impl Runtime {
         std::sync::Arc::new(Self)
     }
 
-    pub async fn start_hotspot(
+    /// Phase 1: create the virtual upstream interface and write the NAT plist.
+    /// After this the user must manually enable Internet Sharing in System Settings.
+    pub async fn prepare_hotspot(
         &self,
         helper: &Helper,
         ssid: &str,
         psk: &str,
-    ) -> Result<HotspotInfo> {
+    ) -> Result<()> {
         helper.feth_create(FETH_NAME, FETH_IP, FETH_PREFIX).await?;
         helper.is_enable(FETH_NAME, ssid, psk).await?;
-        let bridge_ip = wait_for_bridge_ip(helper, Duration::from_secs(30)).await?;
+        Ok(())
+    }
+
+    /// Phase 2: wait for bridge100 to come up (user has toggled Internet Sharing),
+    /// then install pfctl rules.
+    pub async fn await_hotspot(
+        &self,
+        helper: &Helper,
+        ssid: &str,
+        psk: &str,
+        timeout: Duration,
+    ) -> Result<HotspotInfo> {
+        let bridge_ip = wait_for_bridge_ip(helper, timeout).await?;
         helper.pfctl_add(53, DNS_INTERNAL_PORT).await?;
         Ok(HotspotInfo {
             ssid: ssid.to_string(),
@@ -44,7 +57,7 @@ impl Runtime {
         })
     }
 
-    pub async fn arm(&self, helper: &Helper, root: &RootCa, cfg: ArmConfig) -> Result<()> {
+    pub async fn arm(&self, helper: &Helper, cfg: ArmConfig) -> Result<()> {
         let spec = ArmServerSpec {
             bridge_ip: cfg.bridge_ip.to_string(),
             model: cfg.model,
@@ -54,8 +67,6 @@ impl Runtime {
             firmware_sha256: cfg.firmware_sha256,
             crosspoint_version: cfg.crosspoint_version,
             change_log: cfg.change_log,
-            root_ca_cert_pem: root.cert_pem(),
-            root_ca_key_pem: root.key_pem(),
             dns_internal_port: DNS_INTERNAL_PORT,
         };
         helper.arm_servers(spec).await
