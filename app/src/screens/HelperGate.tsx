@@ -97,9 +97,7 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col px-6 py-12">
       <header className="flex items-center gap-2">
-        <div className="flex size-7 items-center justify-center rounded-md bg-brand-500 font-serif text-sm font-medium text-white">
-          X
-        </div>
+        <img src="/logo.png" alt="" className="size-7 rounded-md" />
         <span className="text-sm/6 font-medium tracking-tight text-stone-900">
           Xteink Unlocker
         </span>
