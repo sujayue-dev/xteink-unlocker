@@ -142,23 +142,15 @@ export function Connect({ state }: { state: StateKind }) {
         </Subhead>
       </div>
 
-      <Card>
-        <div className="grid grid-cols-2 gap-3">
-          <InfoBox label="Network name" value={info.ssid ?? "…"} />
-          <InfoBox label="Password" value={info.psk ?? "…"} />
-        </div>
-      </Card>
-
       <ol className="space-y-3">
         <Step
           n={1}
-          title="Join the network on your Xteink"
+          title="Join the hotspot on your Xteink"
           done={deviceConnected}
           active={!deviceConnected}
         >
-          Settings → Wi-Fi → tap{" "}
-          <span className="font-mono text-stone-700">{info.ssid ?? "the network"}</span>
-          , enter the password.
+          On your Xteink, go to Settings → Wi-Fi and connect to the
+          network you created in Internet Sharing.
           {deviceConnected && info.device_ip && (
             <span className="ml-2 text-xs text-brand-500">
               connected ({info.device_ip})
@@ -252,19 +244,6 @@ function Step({
         <div className="mt-1 text-sm text-stone-600">{children}</div>
       </div>
     </li>
-  );
-}
-
-function InfoBox({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg bg-stone-50 px-4 py-3">
-      <div className="text-xs font-medium uppercase tracking-wide text-stone-400">
-        {label}
-      </div>
-      <div className="mt-1 break-all font-mono text-sm font-semibold text-stone-900">
-        {value}
-      </div>
-    </div>
   );
 }
 

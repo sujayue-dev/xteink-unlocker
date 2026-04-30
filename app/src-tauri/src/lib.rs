@@ -247,23 +247,11 @@ async fn run_install(
     };
     log.push("info", format!("hotspot up — bridge at {}", info.bridge_ip), None).await;
     orch.set_hotspot(info.ssid, info.psk, info.bridge_ip.to_string()).await;
-    orch.transition(OrchState::AwaitingClient, None).await;
 
-    // ── Wait for device to join ──
-    let (mac, ip) = await_espressif_lease(&helper, Duration::from_secs(300)).await?;
-    log.push("info", format!("device joined: {mac} -> {ip}"), None)
-        .await;
-    orch.set_device_ip(ip).await;
-
-    // ── Arm DNS + HTTP + HTTPS so the manifest endpoint is ready when the
-    //    user taps Check for Updates on the device. ──
-    let bridge_ip: std::net::Ipv4Addr = orch
-        .data()
-        .await
-        .bridge_ip
-        .as_deref()
-        .ok_or_else(|| anyhow::anyhow!("bridge IP not set"))?
-        .parse()?;
+    // ── Arm DNS + HTTP + HTTPS immediately so they're ready before any
+    //    device connects. The device may check for updates the moment it
+    //    joins the network. ──
+    let bridge_ip: std::net::Ipv4Addr = info.bridge_ip;
     let arm_cfg = ArmConfig {
         bridge_ip,
         model: orch.data().await.model.unwrap(),
@@ -275,9 +263,18 @@ async fn run_install(
         change_log: render_changelog(&release),
     };
     runtime.arm(&helper, arm_cfg).await?;
+    log.push("info", "DNS + HTTP + HTTPS servers armed", None).await;
 
-    // Servers are armed and the device is on the hotspot. We block here
-    // until the helper reports the manifest request.
+    orch.transition(OrchState::AwaitingClient, None).await;
+
+    // ── Wait for device to join ──
+    let (mac, ip) = await_espressif_lease(&helper, Duration::from_secs(300)).await?;
+    log.push("info", format!("device joined: {mac} -> {ip}"), None)
+        .await;
+    orch.set_device_ip(ip).await;
+
+    // Servers are already armed. We block here until the helper reports
+    // the manifest request.
     orch.transition(OrchState::AwaitingDeviceRequest, None).await;
     log.push("info", "armed; waiting for device check-update", None).await;
     helper.wait_manifest().await?;
