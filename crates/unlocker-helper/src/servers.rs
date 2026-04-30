@@ -38,8 +38,15 @@ impl ServerHolder {
 
     pub async fn arm(&self, spec: ArmServerSpec) -> Result<()> {
         let mut guard = self.inner.lock().await;
-        if guard.is_some() {
-            return Err(anyhow!("servers already armed"));
+        // Disarm any leftover servers from a previous run.
+        if let Some(mut old) = guard.take() {
+            tracing::info!("disarming previous servers before re-arming");
+            if let Some(h) = old.http.take() {
+                h.shutdown().await;
+            }
+            if let Some(d) = old.dns.take() {
+                d.shutdown().await;
+            }
         }
 
         let bridge_ip: Ipv4Addr = spec
