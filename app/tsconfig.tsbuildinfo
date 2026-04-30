@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/main.tsx","./src/store.ts","./src/types.ts","./src/components/shell.tsx","./src/components/ui.tsx","./src/screens/connect.tsx","./src/screens/consent.tsx","./src/screens/deviceandregion.tsx","./src/screens/firmware.tsx","./src/screens/helpergate.tsx","./src/screens/live.tsx"],"version":"5.9.3"}
