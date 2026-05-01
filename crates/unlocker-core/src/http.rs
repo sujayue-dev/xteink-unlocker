@@ -160,9 +160,12 @@ async fn github_releases_latest(
 
     cfg.on_manifest_request.notify_waiters();
 
+    // Use the spoofed hostname so the device resolves it via our DNS
+    // back to the bridge IP. This way the TLS connection goes to
+    // api.github.com (which our DNS resolves to us) and the cert
+    // passes validation with skip_cert_common_name_check.
     let download_url = format!(
-        "https://{}/firmware/firmware.bin",
-        cfg.bridge_ip,
+        "https://api.github.com/firmware/firmware.bin",
     );
 
     // Use a very high version so the device always considers it newer.
