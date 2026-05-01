@@ -30,6 +30,17 @@ async fn sh(prog: &str, args: &[&str]) -> Result<String> {
 
 const ADHOC_SERVICE_NAME: &str = "Xteink Unlocker";
 const ADHOC_IP: &str = "10.10.10.1";
+const LOOPBACK_IP: &str = "127.0.0.1";
+const LOOPBACK_NETMASK: &str = "0xff000000";
+
+async fn restore_loopback() {
+    let _ = sh(
+        "ifconfig",
+        &["lo0", "inet", LOOPBACK_IP, "netmask", LOOPBACK_NETMASK, "up"],
+    )
+    .await;
+    let _ = sh("ifconfig", &["lo0", "-alias", ADHOC_IP]).await;
+}
 
 /// Create a fake network service on lo0 so Internet Sharing sees an
 /// "active" upstream even though there's no real internet connection.
@@ -53,6 +64,7 @@ async fn create_adhoc_upstream() -> Result<()> {
 
 async fn remove_adhoc_upstream() {
     let _ = sh("networksetup", &["-removenetworkservice", ADHOC_SERVICE_NAME]).await;
+    restore_loopback().await;
     tracing::info!("removed adhoc upstream service");
 }
 
@@ -256,8 +268,16 @@ pub async fn full_cleanup() -> Result<()> {
     if s.pfctl_anchor_loaded {
         let _ = pfctl_remove().await;
     }
-    if s.internet_sharing_active {
+    if s.internet_sharing_active || Path::new(NAT_PLIST_BACKUP).exists() {
         let _ = is_disable().await;
+    } else {
+        remove_adhoc_upstream().await;
     }
+    restore_loopback().await;
+    state::mutate(|s| {
+        s.internet_sharing_active = false;
+        s.pfctl_anchor_loaded = false;
+    })
+    .await?;
     Ok(())
 }

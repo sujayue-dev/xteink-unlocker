@@ -1,12 +1,35 @@
 import { useState } from "react";
 import { api } from "../api";
-import { Callout, Card, Eyebrow, Heading, PrimaryButton, Subhead } from "../components/ui";
+import {
+  Callout,
+  Card,
+  Eyebrow,
+  Heading,
+  PrimaryButton,
+  SecondaryButton,
+  Subhead,
+} from "../components/ui";
 
 export function Consent() {
   const [general, setGeneral] = useState(false);
   const [recovery, setRecovery] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [repairMessage, setRepairMessage] = useState<string | null>(null);
 
   const ready = general && recovery;
+
+  async function onRepair() {
+    setRepairing(true);
+    setRepairMessage(null);
+    try {
+      await api.repairSystem();
+      setRepairMessage("Network repair complete. localhost should be restored.");
+    } catch (e) {
+      setRepairMessage(`Repair failed: ${String(e)}`);
+    } finally {
+      setRepairing(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -79,6 +102,28 @@ export function Consent() {
         </a>
         , the WebSerial flasher is a safer first try.
       </Callout>
+
+      <Card>
+        <h2 className="font-serif text-lg font-medium text-stone-900">
+          Repair this Mac's network settings
+        </h2>
+        <p className="mt-2 text-sm text-stone-600">
+          If Unlocker was closed mid-session and localhost or Wi-Fi routing
+          stopped working, run a cleanup pass here to restore loopback and tear
+          down Unlocker-managed network changes.
+        </p>
+        <div className="mt-5 flex items-center justify-between gap-4">
+          <p className="text-sm text-stone-500">
+            This is safe to run even if no install is active.
+          </p>
+          <SecondaryButton onClick={onRepair} disabled={repairing}>
+            {repairing ? "Repairing…" : "Repair network settings"}
+          </SecondaryButton>
+        </div>
+        {repairMessage && (
+          <p className="mt-3 text-sm text-stone-600">{repairMessage}</p>
+        )}
+      </Card>
 
       <div className="flex justify-end">
         <PrimaryButton

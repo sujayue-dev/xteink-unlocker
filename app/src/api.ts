@@ -24,6 +24,7 @@ export const api = {
       selection: { model, locale, release_id: releaseId },
     }),
   checkHelper: () => invoke<boolean>("check_helper"),
+  repairSystem: () => invoke<void>("repair_system"),
   confirmRunning: () => invoke<void>("confirm_running"),
   cancel: () => invoke<void>("cancel"),
   getLogs: () => invoke<LogEntry[]>("get_logs"),

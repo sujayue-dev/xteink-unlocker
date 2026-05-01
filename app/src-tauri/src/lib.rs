@@ -325,6 +325,19 @@ async fn cancel(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn repair_system(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .log
+        .push("warn", "running network repair and loopback restore", None)
+        .await;
+    state
+        .helper
+        .full_cleanup()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn get_logs(state: State<'_, AppState>) -> Result<Vec<LogEntry>, String> {
     Ok(state.log.snapshot().await)
 }
@@ -395,6 +408,7 @@ pub fn run() {
             select_firmware,
             confirm_running,
             cancel,
+            repair_system,
             get_logs,
         ])
         .run(tauri::generate_context!())
