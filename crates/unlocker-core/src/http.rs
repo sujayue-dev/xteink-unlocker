@@ -123,8 +123,10 @@ async fn check_update(
 
 async fn serve_firmware(
     State(cfg): State<Arc<ServerConfig>>,
-    AxPath(_filename): AxPath<String>,
+    headers: HeaderMap,
+    AxPath(filename): AxPath<String>,
 ) -> Result<Response, StatusCode> {
+    tracing::info!(%filename, ?headers, "firmware download requested");
     let file = tokio::fs::File::open(&cfg.firmware_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
@@ -222,12 +224,17 @@ pub async fn start(
             .await
     });
 
-    // HTTPS listener with self-signed cert.
-    let tls = RustlsConfig::from_pem(
-        cert.cert_pem.clone().into_bytes(),
-        cert.key_pem.clone().into_bytes(),
-    )
-    .await?;
+    // HTTPS listener. Force HTTP/1.1 only — ESP32's esp_http_client
+    // doesn't support HTTP/2, and ALPN negotiation can cause issues.
+    let certs = rustls_pemfile::certs(&mut cert.cert_pem.as_bytes())
+        .collect::<Result<Vec<_>, _>>()?;
+    let key = rustls_pemfile::private_key(&mut cert.key_pem.as_bytes())?
+        .ok_or_else(|| anyhow::anyhow!("no private key found in PEM"))?;
+    let mut server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)?;
+    server_config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    let tls = RustlsConfig::from_config(std::sync::Arc::new(server_config));
     let app_https = app.clone();
     let h2 = https_handle.clone();
     let https = tokio::spawn(async move {
