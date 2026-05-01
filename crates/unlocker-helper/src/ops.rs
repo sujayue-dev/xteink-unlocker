@@ -11,7 +11,6 @@ use tokio::process::Command;
 
 const NAT_PLIST: &str = "/Library/Preferences/SystemConfiguration/com.apple.nat.plist";
 const NAT_PLIST_BACKUP: &str = "/var/db/com.sofriendly.crosspoint.unlocker.nat.plist.bak";
-const PF_ANCHOR_NAME: &str = "com.sofriendly.crosspoint.unlocker";
 const PF_RULES_PATH: &str = "/var/db/com.sofriendly.crosspoint.unlocker.pf.conf";
 
 async fn sh(prog: &str, args: &[&str]) -> Result<String> {
@@ -179,32 +178,40 @@ async fn write_nat_plist(upstream: &str, ssid: &str, psk: &str) -> Result<()> {
 // ── pfctl (DNS port redirect) ────────────────────────────────────────────────
 
 pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
+    let bridge = bridge_ip().await.unwrap_or_else(|_| "192.168.2.1".to_string());
+
+    // Use a single pf config that includes our rdr rules inline (not via anchors).
+    // Anchors require being referenced in the main /etc/pf.conf which we don't
+    // want to modify. Instead, load a standalone ruleset with -a.
+    //
+    // Actually, the simplest approach: use the nat-anchor that Internet Sharing
+    // already sets up ("com.apple.internet-sharing"), or load rdr rules directly
+    // via a transient anchor using echo | pfctl.
     let rules = format!(
-        "rdr pass on bridge100 inet proto udp from any to any port {from} -> 127.0.0.1 port {to}\n\
-         rdr pass on bridge100 inet proto tcp from any to any port {from} -> 127.0.0.1 port {to}\n",
+        "rdr pass on bridge100 inet proto udp from any to any port {from} -> {bridge} port {to}\n\
+         rdr pass on bridge100 inet proto tcp from any to any port {from} -> {bridge} port {to}\n",
         from = from_port,
         to = to_port,
+        bridge = bridge,
     );
-    tokio::fs::write(PF_RULES_PATH, rules).await?;
-
+    tokio::fs::write(PF_RULES_PATH, &rules).await?;
     state::mutate(|s| s.pfctl_anchor_loaded = true).await?;
 
-    sh(
-        "pfctl",
-        &["-a", PF_ANCHOR_NAME, "-f", PF_RULES_PATH],
-    )
-    .await?;
+    // Load into the Internet Sharing anchor which is already referenced
+    // in the main ruleset — this piggybacks on Apple's existing anchor point.
+    sh("pfctl", &["-a", "com.apple.internet-sharing", "-f", PF_RULES_PATH]).await?;
+
     // Enable pf if not already enabled.
     let _ = sh("pfctl", &["-E"]).await;
-    tracing::info!(from_port, to_port, "pfctl anchor loaded");
+    tracing::info!(from_port, to_port, %bridge, "pfctl rules loaded via internet-sharing anchor");
     Ok(())
 }
 
 pub async fn pfctl_remove() -> Result<()> {
-    let _ = sh("pfctl", &["-a", PF_ANCHOR_NAME, "-F", "all"]).await;
+    let _ = sh("pfctl", &["-a", "com.apple.internet-sharing", "-F", "all"]).await;
     tokio::fs::remove_file(PF_RULES_PATH).await.ok();
     state::mutate(|s| s.pfctl_anchor_loaded = false).await?;
-    tracing::info!("pfctl anchor flushed");
+    tracing::info!("pfctl rules flushed");
     Ok(())
 }
 
