@@ -127,21 +127,26 @@ async fn serve_firmware(
     AxPath(filename): AxPath<String>,
 ) -> Result<Response, StatusCode> {
     tracing::info!(%filename, ?headers, "firmware download requested");
-    let bytes = tokio::fs::read(&cfg.firmware_path)
+    let file = tokio::fs::File::open(&cfg.firmware_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    let len = bytes.len();
-    tracing::info!(len, "serving firmware as complete response");
+    // Use small chunks to match what esp_https_ota expects.
+    let stream = ReaderStream::with_capacity(file, 4096);
+    let body = Body::from_stream(stream);
+    let size = cfg.firmware_size;
+    tracing::info!(size, "streaming firmware");
     let notify = cfg.on_firmware_streamed.clone();
-    notify.notify_waiters();
-    Ok((
-        [
-            (header::CONTENT_TYPE, "application/octet-stream"),
-            (header::CONTENT_LENGTH, &len.to_string()),
-        ],
-        bytes,
-    )
-        .into_response())
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        notify.notify_waiters();
+    });
+    Ok(Response::builder()
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::CONTENT_LENGTH, size)
+        .header(header::CONNECTION, "keep-alive")
+        .header(header::ACCEPT_RANGES, "bytes")
+        .body(body)
+        .unwrap())
 }
 
 /// Spoofs `GET /repos/crosspoint-reader/crosspoint-reader/releases/latest`

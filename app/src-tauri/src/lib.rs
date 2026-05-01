@@ -100,7 +100,7 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
     // Kill any stale helper from a previous run, then start fresh.
     // Use pkill with the exact binary name (not -f) to avoid matching the shell itself.
     let script = format!(
-        "do shell script \"pkill unlocker-helper 2>/dev/null; sleep 1; '{path_str}' &> /dev/null &\" with administrator privileges"
+        "do shell script \"pkill unlocker-helper 2>/dev/null; sleep 1; '{path_str}' &> /dev/null &\" with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" with administrator privileges"
     );
 
     let status = tokio::process::Command::new("osascript")

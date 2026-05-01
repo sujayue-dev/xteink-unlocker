@@ -51,7 +51,7 @@ pub async fn feth_destroy(name: &str) -> Result<()> {
 
 // ── Internet Sharing ─────────────────────────────────────────────────────────
 
-const ADHOC_SERVICE_NAME: &str = "UnlockerUpstream";
+const ADHOC_SERVICE_NAME: &str = "Xteink Unlocker";
 const ADHOC_IP: &str = "10.10.10.1";
 
 /// Create a fake network service on lo0 so Internet Sharing sees an

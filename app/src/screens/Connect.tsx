@@ -100,7 +100,7 @@ export function Connect({ state }: { state: StateKind }) {
           <Step n={2} title="Configure sharing" done={false} active={true}>
             Set <strong>Share your connection from</strong> to{" "}
             <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-xs text-stone-700">
-              UnlockerUpstream
+              Xteink Unlocker
             </span>{" "}
             and check{" "}
             <strong>Wi-Fi</strong> in the "To devices using" list. Click{" "}
