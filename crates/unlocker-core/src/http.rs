@@ -127,23 +127,19 @@ async fn serve_firmware(
     AxPath(filename): AxPath<String>,
 ) -> Result<Response, StatusCode> {
     tracing::info!(%filename, ?headers, "firmware download requested");
-    let file = tokio::fs::File::open(&cfg.firmware_path)
+    let bytes = tokio::fs::read(&cfg.firmware_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    let stream = ReaderStream::new(file);
-    let body = Body::from_stream(stream);
+    let len = bytes.len();
+    tracing::info!(len, "serving firmware as complete response");
     let notify = cfg.on_firmware_streamed.clone();
-    // Best-effort: notify after a short delay matching expected stream time.
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-        notify.notify_waiters();
-    });
+    notify.notify_waiters();
     Ok((
         [
             (header::CONTENT_TYPE, "application/octet-stream"),
-            (header::CONTENT_LENGTH, &cfg.firmware_size.to_string()),
+            (header::CONTENT_LENGTH, &len.to_string()),
         ],
-        body,
+        bytes,
     )
         .into_response())
 }
