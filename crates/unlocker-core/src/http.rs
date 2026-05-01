@@ -139,11 +139,10 @@ async fn serve_firmware(
     let size = cfg.firmware_size;
     let range = parse_range(headers.get(header::RANGE), size)?;
     tracing::info!(size, ?range, "streaming firmware");
-    let notify = cfg.on_firmware_streamed.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(30)).await;
-        notify.notify_waiters();
-    });
+    // Advance the app UI as soon as the device begins the firmware GET.
+    // Waiting for the whole transfer to finish hides the install screen while
+    // the device is already on its OTA progress view.
+    cfg.on_firmware_streamed.notify_waiters();
 
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, "application/octet-stream")

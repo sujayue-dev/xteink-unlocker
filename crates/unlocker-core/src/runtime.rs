@@ -11,10 +11,6 @@ use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::time::Duration;
 
-pub const FETH_NAME: &str = "feth7";
-pub const FETH_IP: &str = "10.99.99.1";
-pub const FETH_PREFIX: u8 = 24;
-
 /// pfctl redirects port 53 -> this on the bridge interface; the helper's
 /// DNS server actually listens here. We avoid 5353 because mDNSResponder
 /// binds to *:5353 for Bonjour.
@@ -27,7 +23,8 @@ impl Runtime {
         std::sync::Arc::new(Self)
     }
 
-    /// Phase 1: create lo0 upstream service and write NAT plist.
+    /// Phase 1: create the temporary lo0-backed upstream service and write the
+    /// Internet Sharing NAT plist.
     /// After this the user must enable Internet Sharing in System Settings.
     pub async fn prepare_hotspot(
         &self,
@@ -35,7 +32,7 @@ impl Runtime {
         ssid: &str,
         psk: &str,
     ) -> Result<()> {
-        helper.is_enable("auto", ssid, psk).await?;
+        helper.is_enable(ssid, psk).await?;
         Ok(())
     }
 

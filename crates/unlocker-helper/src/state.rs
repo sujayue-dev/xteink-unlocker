@@ -13,7 +13,6 @@ const STATE_PATH: &str = "/var/db/com.sofriendly.crosspoint.unlocker.helper.stat
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct HelperState {
-    pub feth_interface: Option<String>,
     pub internet_sharing_active: bool,
     pub pfctl_anchor_loaded: bool,
 }
@@ -59,10 +58,6 @@ pub async fn recover() -> anyhow::Result<()> {
     if s.internet_sharing_active {
         tracing::warn!("recovering: stopping leftover Internet Sharing");
         let _ = crate::ops::is_disable().await;
-    }
-    if let Some(name) = s.feth_interface.clone() {
-        tracing::warn!(%name, "recovering: destroying leftover feth interface");
-        let _ = crate::ops::feth_destroy(&name).await;
     }
     Ok(())
 }

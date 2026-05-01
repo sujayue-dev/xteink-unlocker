@@ -19,9 +19,7 @@ pub fn socket_path() -> PathBuf {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     Ping,
-    FethCreate { name: String, ip: String, prefix: u8 },
-    FethDestroy { name: String },
-    IsEnable { upstream: String, ssid: String, psk: String },
+    IsEnable { ssid: String, psk: String },
     IsDisable,
     PfctlAdd { from_port: u16, to_port: u16 },
     PfctlRemove,
@@ -82,25 +80,8 @@ impl Helper {
         self.one_shot(Request::Ping).await.map(|_| ())
     }
 
-    pub async fn feth_create(&self, name: &str, ip: &str, prefix: u8) -> Result<()> {
-        self.one_shot(Request::FethCreate {
-            name: name.into(),
-            ip: ip.into(),
-            prefix,
-        })
-        .await
-        .map(|_| ())
-    }
-
-    pub async fn feth_destroy(&self, name: &str) -> Result<()> {
-        self.one_shot(Request::FethDestroy { name: name.into() })
-            .await
-            .map(|_| ())
-    }
-
-    pub async fn is_enable(&self, upstream: &str, ssid: &str, psk: &str) -> Result<()> {
+    pub async fn is_enable(&self, ssid: &str, psk: &str) -> Result<()> {
         self.one_shot(Request::IsEnable {
-            upstream: upstream.into(),
             ssid: ssid.into(),
             psk: psk.into(),
         })

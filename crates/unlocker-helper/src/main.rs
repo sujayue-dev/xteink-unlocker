@@ -2,7 +2,7 @@
 //!
 //! Runs as root (LaunchDaemon, registered via SMAppService) and exposes a
 //! tiny JSON-RPC protocol over a Unix domain socket. Owns:
-//!   * macOS network state (feth, Internet Sharing, pfctl, dhcpd_leases).
+//!   * macOS network state (Internet Sharing, pfctl, dhcpd_leases).
 //!   * The spoofing servers (DNS / HTTP / HTTPS) bound to privileged ports.
 //!
 //! The unprivileged main process drives us via RPC; we never run untrusted
@@ -88,15 +88,9 @@ async fn dispatch(req: Request, servers: &ServerHolder) -> Response {
     let result: anyhow::Result<serde_json::Value> = match req {
         Request::Ping => Ok(serde_json::json!({"pong": true})),
 
-        Request::FethCreate { name, ip, prefix } => ops::feth_create(&name, &ip, prefix)
+        Request::IsEnable { ssid, psk } => ops::is_enable(&ssid, &psk)
             .await
-            .map(|_| serde_json::json!({"name": name, "ip": ip})),
-        Request::FethDestroy { name } => ops::feth_destroy(&name)
-            .await
-            .map(|_| serde_json::json!({"destroyed": name})),
-        Request::IsEnable { upstream, ssid, psk } => ops::is_enable(&upstream, &ssid, &psk)
-            .await
-            .map(|_| serde_json::json!({"upstream": upstream, "ssid": ssid})),
+            .map(|_| serde_json::json!({"ssid": ssid})),
         Request::IsDisable => ops::is_disable().await.map(|_| serde_json::json!({})),
         Request::PfctlAdd { from_port, to_port } => ops::pfctl_add(from_port, to_port)
             .await

@@ -5,16 +5,7 @@ use unlocker_core::types::ArmServerSpec;
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Request {
     Ping,
-    FethCreate {
-        name: String,
-        ip: String,
-        prefix: u8,
-    },
-    FethDestroy {
-        name: String,
-    },
     IsEnable {
-        upstream: String,
         ssid: String,
         psk: String,
     },
