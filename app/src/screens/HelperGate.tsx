@@ -60,6 +60,15 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
     };
   }, [phase]);
 
+  useEffect(() => {
+    const onUninstalled = () => {
+      setError(null);
+      setPhase("checking");
+    };
+    window.addEventListener("helper-uninstalled", onUninstalled);
+    return () => window.removeEventListener("helper-uninstalled", onUninstalled);
+  }, []);
+
   async function onInstall() {
     setError(null);
     setPhase("registering");

@@ -25,6 +25,7 @@ export const api = {
     }),
   checkHelper: () => invoke<boolean>("check_helper"),
   cleanupAfterInstall: () => invoke<void>("cleanup_after_install"),
+  uninstallHelper: () => invoke<void>("uninstall_helper"),
   repairSystem: () => invoke<void>("repair_system"),
   confirmRunning: () => invoke<void>("confirm_running"),
   cancel: () => invoke<void>("cancel"),

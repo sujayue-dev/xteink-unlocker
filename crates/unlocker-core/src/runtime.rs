@@ -37,15 +37,15 @@ impl Runtime {
     }
 
     /// Phase 2: wait for bridge100 to come up (user has toggled Internet Sharing),
-    /// then install pfctl rules.
+    /// then install pfctl rules. Polls indefinitely — toggling Internet Sharing
+    /// is a manual user step that may take a while.
     pub async fn await_hotspot(
         &self,
         helper: &Helper,
         ssid: &str,
         psk: &str,
-        timeout: Duration,
     ) -> Result<HotspotInfo> {
-        let bridge_ip = wait_for_bridge_ip(helper, timeout).await?;
+        let bridge_ip = wait_for_bridge_ip(helper).await?;
         helper.pfctl_add(53, DNS_INTERNAL_PORT).await?;
         Ok(HotspotInfo {
             ssid: ssid.to_string(),
@@ -69,8 +69,8 @@ impl Runtime {
         helper.arm_servers(spec).await
     }
 
-    pub async fn wait_for_bridge(&self, helper: &Helper, timeout: Duration) -> Result<Ipv4Addr> {
-        wait_for_bridge_ip(helper, timeout).await
+    pub async fn wait_for_bridge(&self, helper: &Helper) -> Result<Ipv4Addr> {
+        wait_for_bridge_ip(helper).await
     }
 
     pub async fn teardown(&self, helper: &Helper) -> Result<()> {
@@ -98,16 +98,12 @@ pub struct ArmConfig {
     pub change_log: String,
 }
 
-async fn wait_for_bridge_ip(helper: &Helper, timeout: Duration) -> Result<Ipv4Addr> {
-    let deadline = tokio::time::Instant::now() + timeout;
+async fn wait_for_bridge_ip(helper: &Helper) -> Result<Ipv4Addr> {
     loop {
         if let Ok(ip) = helper.bridge_ip().await {
             if let Ok(parsed) = ip.parse::<Ipv4Addr>() {
                 return Ok(parsed);
             }
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(anyhow!("bridge100 didn't acquire an IP within {timeout:?}"));
         }
         tokio::time::sleep(Duration::from_millis(500)).await;
     }

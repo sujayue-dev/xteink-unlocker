@@ -42,6 +42,7 @@ export interface CrossPointRelease {
   firmware_url: string;
   firmware_sha256: string | null;
   size: number;
+  supported_devices: Model[];
 }
 
 export interface Catalog {

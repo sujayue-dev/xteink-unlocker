@@ -3,7 +3,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use unlocker_core::helper::Helper;
 use unlocker_core::orchestrator::{Orchestrator, State as OrchState};
-use unlocker_core::runtime::{await_espressif_lease, ArmConfig, Runtime};
+use unlocker_core::runtime::{await_device_lease, ArmConfig, Runtime};
 use unlocker_core::types::{Catalog, CrossPointRelease, Locale, Model, Selection};
 use unlocker_core::{catalog, session::SessionLog, types::LogEntry};
 
@@ -126,12 +126,15 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn uninstall_helper() -> Result<(), String> {
-    let script = "do shell script \"pkill -f unlocker-helper\" with administrator privileges";
-    tokio::process::Command::new("osascript")
+    let script = "do shell script \"pkill -9 unlocker-helper\" with prompt \"Xteink Unlocker needs to stop its privileged helper.\" with administrator privileges";
+    let status = tokio::process::Command::new("osascript")
         .args(["-e", script])
         .status()
         .await
         .map_err(|e| format!("failed to run osascript: {e}"))?;
+    if !status.success() {
+        return Err("user cancelled or authorization failed".into());
+    }
     Ok(())
 }
 
@@ -238,10 +241,10 @@ async fn run_install(
 
     // Wait for the user to enable Internet Sharing in System Settings.
     orch.transition(OrchState::WaitingForInternetSharing, None).await;
-    let info = match runtime.await_hotspot(&helper, &ssid, &psk, Duration::from_secs(300)).await {
+    let info = match runtime.await_hotspot(&helper, &ssid, &psk).await {
         Ok(info) => info,
         Err(e) => {
-            log.push("error", format!("bridge100 timeout: {e:#}"), None).await;
+            log.push("error", format!("await_hotspot failed: {e:#}"), None).await;
             return Err(e);
         }
     };
@@ -266,9 +269,10 @@ async fn run_install(
     log.push("info", "DNS + HTTP + HTTPS servers armed", None).await;
 
     orch.transition(OrchState::AwaitingClient, None).await;
+    log.push("info", "waiting for device to join hotspot", None).await;
 
     // ── Wait for device to join ──
-    let (mac, ip) = await_espressif_lease(&helper, Duration::from_secs(300)).await?;
+    let (mac, ip) = await_device_lease(&helper, bridge_ip, Duration::from_secs(300)).await?;
     log.push("info", format!("device joined: {mac} -> {ip}"), None)
         .await;
     orch.set_device_ip(ip).await;

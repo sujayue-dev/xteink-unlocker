@@ -20,16 +20,22 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
 
   const grouped = useMemo(() => {
     if (!catalog) return null;
+    const supportsModel = (r: CrossPointRelease) => {
+      // Treat a missing/empty supported_devices list as universal so older
+      // catalog payloads keep working.
+      if (!r.supported_devices || r.supported_devices.length === 0) return true;
+      return r.supported_devices.includes(model);
+    };
     const by = (c: Channel) =>
       catalog.releases
-        .filter((r) => r.channel === c)
+        .filter((r) => r.channel === c && supportsModel(r))
         .sort((a, b) => b.released_at.localeCompare(a.released_at));
     return {
       stable: by("stable"),
       beta: by("beta"),
       insider: by("insider"),
     };
-  }, [catalog]);
+  }, [catalog, model]);
 
   if (error) {
     return (

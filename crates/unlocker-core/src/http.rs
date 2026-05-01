@@ -1,13 +1,12 @@
 //! Manifest server.
 //!
 //! Two listeners on the bridge IP:
-//!   * port 80   — plain HTTP. Serves `/firmware/*.bin` (the download URL we
-//!                 hand back in the manifest is HTTP).
+//!   * port 80   — plain HTTP. Serves the stock updater path.
 //!   * port 443  — HTTPS with a self-signed cert for the spoofed API hostname.
-//!                 Handles `/api/v1/check-update`.
+//!                 Handles the CrossPoint GitHub API spoof and firmware asset.
 //!
-//! Both listeners share the same axum router: stock can hit the manifest
-//! over either scheme, and we serve the binary over plain HTTP regardless.
+//! The CrossPoint OTA path should look like a plain fixed-length HTTPS asset
+//! download, not a chunked application stream.
 
 use crate::cert::SelfSignedCert;
 use crate::types::{Locale, Model};
@@ -24,8 +23,6 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
-use tokio_util::io::ReaderStream;
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -129,20 +126,23 @@ async fn serve_firmware(
 ) -> Result<Response, StatusCode> {
     tracing::info!(
         %filename,
+        path = %cfg.firmware_path.display(),
+        size = cfg.firmware_size,
         range = ?headers.get(header::RANGE),
         ?headers,
         "firmware download requested"
     );
-    let file = tokio::fs::File::open(&cfg.firmware_path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
     let size = cfg.firmware_size;
     let range = parse_range(headers.get(header::RANGE), size)?;
-    tracing::info!(size, ?range, "streaming firmware");
+    tracing::info!(size, ?range, "serving firmware");
     // Advance the app UI as soon as the device begins the firmware GET.
     // Waiting for the whole transfer to finish hides the install screen while
     // the device is already on its OTA progress view.
     cfg.on_firmware_streamed.notify_waiters();
+
+    let bytes = tokio::fs::read(&cfg.firmware_path)
+        .await
+        .map_err(|_| StatusCode::NOT_FOUND)?;
 
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, "application/octet-stream")
@@ -155,11 +155,12 @@ async fn serve_firmware(
     let body = match range {
         Some((start, end)) => {
             let content_len = end - start + 1;
-            let mut file = file;
-            file.seek(SeekFrom::Start(start))
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-            let stream = ReaderStream::with_capacity(file.take(content_len), 4096);
+            let start = start as usize;
+            let end_inclusive = end as usize;
+            let chunk = bytes
+                .get(start..=end_inclusive)
+                .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?
+                .to_vec();
             builder = builder
                 .status(StatusCode::PARTIAL_CONTENT)
                 .header(
@@ -167,12 +168,11 @@ async fn serve_firmware(
                     format!("bytes {start}-{end}/{size}"),
                 )
                 .header(header::CONTENT_LENGTH, content_len);
-            Body::from_stream(stream)
+            Body::from(chunk)
         }
         None => {
-            let stream = ReaderStream::with_capacity(file, 4096);
             builder = builder.header(header::CONTENT_LENGTH, size);
-            Body::from_stream(stream)
+            Body::from(bytes)
         }
     };
 

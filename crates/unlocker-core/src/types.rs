@@ -67,6 +67,8 @@ pub struct CrossPointRelease {
     pub firmware_url: String,
     pub firmware_sha256: Option<String>,
     pub size: u64,
+    #[serde(default)]
+    pub supported_devices: Vec<Model>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

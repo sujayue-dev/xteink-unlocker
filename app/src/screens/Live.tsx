@@ -4,6 +4,7 @@ import {
   Eyebrow,
   Heading,
   PrimaryButton,
+  SecondaryButton,
   StatusDot,
   Subhead,
 } from "../components/ui";
@@ -83,6 +84,8 @@ export function Live({ state }: { state: StateKind }) {
 export function Done() {
   const [cleaning, setCleaning] = useState(false);
   const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+  const [removingHelper, setRemovingHelper] = useState(false);
+  const [helperMessage, setHelperMessage] = useState<string | null>(null);
 
   async function onCleanup() {
     setCleaning(true);
@@ -94,6 +97,19 @@ export function Done() {
       setCleanupMessage(`Cleanup failed: ${String(e)}`);
     } finally {
       setCleaning(false);
+    }
+  }
+
+  async function onRemoveHelper() {
+    setRemovingHelper(true);
+    setHelperMessage(null);
+    try {
+      await api.uninstallHelper();
+      window.dispatchEvent(new Event("helper-uninstalled"));
+    } catch (e) {
+      setHelperMessage(`Could not stop helper: ${String(e)}`);
+    } finally {
+      setRemovingHelper(false);
     }
   }
 
@@ -122,19 +138,43 @@ export function Done() {
         <h2 className="font-serif text-lg font-medium text-stone-900">
           On this Mac
         </h2>
-        <ul className="mt-3 space-y-2 text-sm text-stone-600">
-          <li>– Turn Internet Sharing off in System Settings if it is still on.</li>
-          <li>– Click the button below to tear down Unlocker’s local network changes.</li>
-        </ul>
+        <p className="mt-3 text-sm text-stone-600">
+          Only do this <strong>after</strong> you have verified the update
+          finished on the Xteink. Tearing things down while the device is still
+          downloading or installing will fail the update.
+        </p>
+        <ol className="mt-3 space-y-2 text-sm text-stone-600 list-decimal list-inside">
+          <li>Confirm the update succeeded on the device.</li>
+          <li>Turn Internet Sharing off in System Settings.</li>
+          <li>Click the button below to tear down Unlocker’s local network changes.</li>
+          <li>Quit Unlocker.</li>
+        </ol>
         <div className="mt-5 flex justify-end">
           <PrimaryButton onClick={onCleanup} disabled={cleaning}>
-            {cleaning
-              ? "Cleaning up…"
-              : "Turn off Internet Sharing and clean up"}
+            {cleaning ? "Cleaning up…" : "Clean up"}
           </PrimaryButton>
         </div>
         {cleanupMessage && (
           <p className="mt-3 text-sm text-stone-600">{cleanupMessage}</p>
+        )}
+      </Card>
+      <Card>
+        <h2 className="font-serif text-lg font-medium text-stone-900">
+          Stop the privileged helper
+        </h2>
+        <p className="mt-3 text-sm text-stone-600">
+          Optional. Unlocker leaves a small background helper running with
+          admin rights so subsequent runs do not need a password. Stop it now
+          if you would rather have it gone — you will be prompted again next
+          time you launch the app.
+        </p>
+        <div className="mt-5 flex justify-end">
+          <SecondaryButton onClick={onRemoveHelper} disabled={removingHelper}>
+            {removingHelper ? "Stopping…" : "Stop helper"}
+          </SecondaryButton>
+        </div>
+        {helperMessage && (
+          <p className="mt-3 text-sm text-stone-600">{helperMessage}</p>
         )}
       </Card>
     </div>

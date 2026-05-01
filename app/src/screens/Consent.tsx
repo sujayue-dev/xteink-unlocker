@@ -15,6 +15,8 @@ export function Consent() {
   const [recovery, setRecovery] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [repairMessage, setRepairMessage] = useState<string | null>(null);
+  const [removingHelper, setRemovingHelper] = useState(false);
+  const [helperMessage, setHelperMessage] = useState<string | null>(null);
 
   const ready = general && recovery;
 
@@ -28,6 +30,19 @@ export function Consent() {
       setRepairMessage(`Repair failed: ${String(e)}`);
     } finally {
       setRepairing(false);
+    }
+  }
+
+  async function onRemoveHelper() {
+    setRemovingHelper(true);
+    setHelperMessage(null);
+    try {
+      await api.uninstallHelper();
+      window.dispatchEvent(new Event("helper-uninstalled"));
+    } catch (e) {
+      setHelperMessage(`Could not stop helper: ${String(e)}`);
+    } finally {
+      setRemovingHelper(false);
     }
   }
 
@@ -122,6 +137,29 @@ export function Consent() {
         </div>
         {repairMessage && (
           <p className="mt-3 text-sm text-stone-600">{repairMessage}</p>
+        )}
+      </Card>
+
+      <Card>
+        <h2 className="font-serif text-lg font-medium text-stone-900">
+          Stop the privileged helper
+        </h2>
+        <p className="mt-2 text-sm text-stone-600">
+          Unlocker leaves a small background helper running with admin rights
+          so subsequent runs do not need a password. Stop it if you would
+          rather have it gone — you will be prompted again next time you
+          launch the app.
+        </p>
+        <div className="mt-5 flex items-center justify-between gap-4">
+          <p className="text-sm text-stone-500">
+            Safe to run any time. No effect if the helper is not running.
+          </p>
+          <SecondaryButton onClick={onRemoveHelper} disabled={removingHelper}>
+            {removingHelper ? "Stopping…" : "Stop helper"}
+          </SecondaryButton>
+        </div>
+        {helperMessage && (
+          <p className="mt-3 text-sm text-stone-600">{helperMessage}</p>
         )}
       </Card>
 

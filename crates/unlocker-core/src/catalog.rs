@@ -1,4 +1,4 @@
-use crate::types::{Catalog, Channel, CrossPointRelease};
+use crate::types::{Catalog, Channel, CrossPointRelease, Model};
 use anyhow::{anyhow, Context, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -66,6 +66,7 @@ pub fn stub_catalog() -> Catalog {
                 firmware_url: "https://crosspointreader.com/api/release/firmware".into(),
                 firmware_sha256: None,
                 size: 6_291_456,
+                supported_devices: vec![Model::X3, Model::X4],
             },
             CrossPointRelease {
                 id: "beta-sd-storage".into(),
@@ -77,6 +78,7 @@ pub fn stub_catalog() -> Catalog {
                 firmware_url: "https://crosspointreader.com/api/beta/sd-storage/firmware".into(),
                 firmware_sha256: None,
                 size: 6_320_000,
+                supported_devices: vec![Model::X3, Model::X4],
             },
             CrossPointRelease {
                 id: "beta-calibre-sync".into(),
@@ -88,6 +90,7 @@ pub fn stub_catalog() -> Catalog {
                 firmware_url: "https://crosspointreader.com/api/beta/calibre-sync/firmware".into(),
                 firmware_sha256: None,
                 size: 6_315_000,
+                supported_devices: vec![Model::X3, Model::X4],
             },
             CrossPointRelease {
                 id: "insider-latest".into(),
@@ -99,6 +102,7 @@ pub fn stub_catalog() -> Catalog {
                 firmware_url: "https://crosspointreader.com/api/build/firmware".into(),
                 firmware_sha256: None,
                 size: 6_350_000,
+                supported_devices: vec![Model::X3, Model::X4],
             },
         ],
     }
@@ -137,7 +141,7 @@ pub async fn download_firmware(
 
     let sha = hex::encode(hasher.finalize());
     if let Some(expected) = &release.firmware_sha256 {
-        if expected.eq_ignore_ascii_case(&sha) == false {
+        if !expected.eq_ignore_ascii_case(&sha) {
             tokio::fs::remove_file(&tmp).await.ok();
             return Err(anyhow!("sha256 mismatch (expected {expected}, got {sha})"));
         }
@@ -163,3 +167,4 @@ pub fn verify_file(path: &Path, expected_sha: &str) -> Result<bool> {
     let got = hex::encode(hasher.finalize());
     Ok(got.eq_ignore_ascii_case(expected_sha))
 }
+
