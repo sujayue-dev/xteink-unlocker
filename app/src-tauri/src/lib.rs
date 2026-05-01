@@ -283,13 +283,13 @@ async fn run_install(
         .await;
 
     helper.wait_firmware().await?;
-    log.push("info", "firmware streamed", None).await;
-    orch.transition(OrchState::Flashing, Some("Streaming firmware".into()))
+    log.push("info", "device started firmware download; handoff to on-device updater", None)
         .await;
-
-    // The device will reboot on its own. Give it a moment, then advance.
-    tokio::time::sleep(Duration::from_secs(10)).await;
-    orch.transition(OrchState::Verifying, None).await;
+    orch.transition(
+        OrchState::Done,
+        Some("Check your device, then clean up the network on this Mac.".into()),
+    )
+    .await;
 
     Ok(())
 }
@@ -315,6 +315,20 @@ async fn confirm_running(state: State<'_, AppState>) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[tauri::command]
+async fn cleanup_after_install(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .log
+        .push("info", "cleaning up Internet Sharing and local network changes", None)
+        .await;
+    let _ = state.runtime.teardown(&state.helper).await;
+    state
+        .helper
+        .full_cleanup()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -407,6 +421,7 @@ pub fn run() {
             select_device,
             select_firmware,
             confirm_running,
+            cleanup_after_install,
             cancel,
             repair_system,
             get_logs,

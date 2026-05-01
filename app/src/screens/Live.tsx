@@ -1,13 +1,19 @@
 import { api } from "../api";
-import { Card, Eyebrow, Heading, PrimaryButton, StatusDot, Subhead } from "../components/ui";
+import {
+  Card,
+  Eyebrow,
+  Heading,
+  PrimaryButton,
+  StatusDot,
+  Subhead,
+} from "../components/ui";
 import { useSessionLog } from "../store";
+import { useState } from "react";
 import type { StateKind } from "../types";
 
 const STAGES: { key: StateKind; label: string }[] = [
   { key: "armed", label: "Armed" },
   { key: "serving", label: "Manifest served" },
-  { key: "flashing", label: "Streaming firmware" },
-  { key: "verifying", label: "Device flashing" },
 ];
 
 export function Live({ state }: { state: StateKind }) {
@@ -74,69 +80,62 @@ export function Live({ state }: { state: StateKind }) {
   );
 }
 
-export function Verify() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <Eyebrow>Step 10 · Verify</Eyebrow>
-        <Heading>Is CrossPoint running?</Heading>
-        <Subhead>
-          Your Xteink should have rebooted into CrossPoint. The home screen
-          looks recognisably different from stock — the Lyra theme, a
-          CrossPoint version string in Settings → System.
-        </Subhead>
-      </div>
-      <Card>
-        <ul className="space-y-2 text-sm text-stone-600">
-          <li>– Open a book to confirm the reader works.</li>
-          <li>– Try changing a font size.</li>
-          <li>– Check Settings → System for the CrossPoint version.</li>
-        </ul>
-      </Card>
-      <div className="flex justify-end gap-2">
-        <PrimaryButton onClick={() => api.confirmRunning()}>
-          Yes, CrossPoint is running
-        </PrimaryButton>
-      </div>
-    </div>
-  );
-}
-
 export function Done() {
+  const [cleaning, setCleaning] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState<string | null>(null);
+
+  async function onCleanup() {
+    setCleaning(true);
+    setCleanupMessage(null);
+    try {
+      await api.cleanupAfterInstall();
+      setCleanupMessage("Cleanup complete. You can close Unlocker.");
+    } catch (e) {
+      setCleanupMessage(`Cleanup failed: ${String(e)}`);
+    } finally {
+      setCleaning(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div>
-        <Eyebrow>All set</Eyebrow>
-        <Heading>CrossPoint is installed. Welcome.</Heading>
+        <Eyebrow>Final step</Eyebrow>
+        <Heading>Check your Xteink, then clean up this Mac</Heading>
         <Subhead>
-          You can close Unlocker. Your Wi-Fi has been restored and any
-          temporary network changes have been undone.
+          Unlocker can only confirm that the device started its own updater.
+          The final result is visible on the Xteink itself, not from the Mac.
         </Subhead>
       </div>
       <Card>
         <h2 className="font-serif text-lg font-medium text-stone-900">
-          What's next
+          On your device
         </h2>
         <ul className="mt-3 space-y-2 text-sm text-stone-600">
-          <li>
-            –{" "}
-            <a
-              href="https://crosspointreader.com"
-              target="_blank"
-              rel="noreferrer"
-              className="text-brand-500 hover:text-brand-600"
-            >
-              CrossPoint docs
-            </a>
-            : sync, fonts, plugins.
-          </li>
-          <li>
-            – Calibre plugin for wireless transfers.
-          </li>
-          <li>
-            – Font Builder for custom typefaces.
-          </li>
+          <li>– Wait for the update to finish or for the device to reboot.</li>
+          <li>– Check whether the CrossPoint home screen appears.</li>
+          <li>– If it booted, open Settings → System and confirm the version.</li>
+          <li>– If it did not boot, leave this screen open and follow your recovery path.</li>
         </ul>
+      </Card>
+      <Card>
+        <h2 className="font-serif text-lg font-medium text-stone-900">
+          On this Mac
+        </h2>
+        <ul className="mt-3 space-y-2 text-sm text-stone-600">
+          <li>– Turn Internet Sharing off in System Settings if it is still on.</li>
+          <li>– Click the button below to tear down Unlocker’s local network changes.</li>
+        </ul>
+        <div className="mt-5 flex justify-end">
+          <PrimaryButton onClick={onCleanup} disabled={cleaning}>
+            {cleaning
+              ? "Cleaning up…"
+              : "Turn off Internet Sharing and clean up"}
+          </PrimaryButton>
+        </div>
+        {cleanupMessage && (
+          <p className="mt-3 text-sm text-stone-600">{cleanupMessage}</p>
+        )}
       </Card>
     </div>
   );

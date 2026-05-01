@@ -4,7 +4,7 @@ import { Consent } from "./screens/Consent";
 import { DeviceAndRegion } from "./screens/DeviceAndRegion";
 import { Firmware } from "./screens/Firmware";
 import { Connect } from "./screens/Connect";
-import { Done, Failed, Live, Verify } from "./screens/Live";
+import { Done, Failed, Live } from "./screens/Live";
 import { useStateMachine } from "./store";
 import { api } from "./api";
 import type { Locale, Model } from "./types";
@@ -42,10 +42,9 @@ export function App() {
         state === "waiting_for_internet_sharing" ||
         state === "awaiting_client" ||
         state === "awaiting_device_request") && <Connect state={state} />}
-      {(state === "armed" || state === "serving" || state === "flashing") && (
+      {(state === "armed" || state === "serving") && (
         <Live state={state} />
       )}
-      {state === "verifying" && <Verify />}
       {state === "done" && <Done />}
       {state === "failed" && <Failed error={error} />}
       {state === "cleaning_up" && (
