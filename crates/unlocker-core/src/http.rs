@@ -165,8 +165,11 @@ async fn github_releases_latest(
         cfg.bridge_ip,
     );
 
+    // Use a very high version so the device always considers it newer.
+    // CrossPoint's version check uses sscanf("%d.%d.%d") so this parses
+    // as 99.9.9 which is greater than any real version.
     Json(serde_json::json!({
-        "tag_name": cfg.crosspoint_version,
+        "tag_name": "99.9.9",
         "name": format!("CrossPoint {}", cfg.crosspoint_version),
         "assets": [{
             "name": "firmware.bin",
