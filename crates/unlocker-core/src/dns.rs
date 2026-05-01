@@ -28,6 +28,8 @@ impl DnsConfig {
                 locale.api_host().to_string(),
                 // CrossPoint OTA checks api.github.com for updates.
                 "api.github.com".to_string(),
+                // Firmware download URL uses our cert's hostname.
+                "unlocker.crosspointreader.com".to_string(),
             ],
             answer_with: bridge_ip,
         }

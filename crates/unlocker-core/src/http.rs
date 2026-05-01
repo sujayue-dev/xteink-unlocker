@@ -160,13 +160,9 @@ async fn github_releases_latest(
 
     cfg.on_manifest_request.notify_waiters();
 
-    // Use the spoofed hostname so the device resolves it via our DNS
-    // back to the bridge IP. This way the TLS connection goes to
-    // api.github.com (which our DNS resolves to us) and the cert
-    // passes validation with skip_cert_common_name_check.
-    let download_url = format!(
-        "https://api.github.com/firmware/firmware.bin",
-    );
+    // Use the hostname that matches our Let's Encrypt cert so TLS
+    // validation passes (SAN check). DNS spoofs this to the bridge IP.
+    let download_url = "https://unlocker.crosspointreader.com/firmware/firmware.bin".to_string();
 
     // Use a very high version so the device always considers it newer.
     // CrossPoint's version check uses sscanf("%d.%d.%d") so this parses
