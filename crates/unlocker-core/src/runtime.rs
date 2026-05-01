@@ -16,8 +16,9 @@ pub const FETH_IP: &str = "10.99.99.1";
 pub const FETH_PREFIX: u8 = 24;
 
 /// pfctl redirects port 53 -> this on the bridge interface; the helper's
-/// DNS server actually listens here.
-pub const DNS_INTERNAL_PORT: u16 = 5353;
+/// DNS server actually listens here. We avoid 5353 because mDNSResponder
+/// binds to *:5353 for Bonjour.
+pub const DNS_INTERNAL_PORT: u16 = 10053;
 
 pub struct Runtime;
 
