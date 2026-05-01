@@ -14,7 +14,7 @@ use crate::types::{Locale, Model};
 use axum::{
     body::Body,
     extract::{Path as AxPath, Query, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Json, Response},
     routing::get,
     Router,
@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio_util::io::ReaderStream;
 
 #[derive(Debug, Clone)]
@@ -126,27 +127,111 @@ async fn serve_firmware(
     headers: HeaderMap,
     AxPath(filename): AxPath<String>,
 ) -> Result<Response, StatusCode> {
-    tracing::info!(%filename, ?headers, "firmware download requested");
+    tracing::info!(
+        %filename,
+        range = ?headers.get(header::RANGE),
+        ?headers,
+        "firmware download requested"
+    );
     let file = tokio::fs::File::open(&cfg.firmware_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
-    // Use small chunks to match what esp_https_ota expects.
-    let stream = ReaderStream::with_capacity(file, 4096);
-    let body = Body::from_stream(stream);
     let size = cfg.firmware_size;
-    tracing::info!(size, "streaming firmware");
+    let range = parse_range(headers.get(header::RANGE), size)?;
+    tracing::info!(size, ?range, "streaming firmware");
     let notify = cfg.on_firmware_streamed.clone();
     tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         notify.notify_waiters();
     });
-    Ok(Response::builder()
+
+    let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, "application/octet-stream")
-        .header(header::CONTENT_LENGTH, size)
-        .header(header::CONNECTION, "keep-alive")
         .header(header::ACCEPT_RANGES, "bytes")
-        .body(body)
-        .unwrap())
+        .header(
+            header::CONTENT_DISPOSITION,
+            HeaderValue::from_static("attachment; filename=firmware.bin"),
+        );
+
+    let body = match range {
+        Some((start, end)) => {
+            let content_len = end - start + 1;
+            let mut file = file;
+            file.seek(SeekFrom::Start(start))
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let stream = ReaderStream::with_capacity(file.take(content_len), 4096);
+            builder = builder
+                .status(StatusCode::PARTIAL_CONTENT)
+                .header(
+                    header::CONTENT_RANGE,
+                    format!("bytes {start}-{end}/{size}"),
+                )
+                .header(header::CONTENT_LENGTH, content_len);
+            Body::from_stream(stream)
+        }
+        None => {
+            let stream = ReaderStream::with_capacity(file, 4096);
+            builder = builder.header(header::CONTENT_LENGTH, size);
+            Body::from_stream(stream)
+        }
+    };
+
+    Ok(builder.body(body).unwrap())
+}
+
+fn parse_range(range: Option<&HeaderValue>, size: u64) -> Result<Option<(u64, u64)>, StatusCode> {
+    let Some(range) = range else {
+        return Ok(None);
+    };
+
+    let raw = range.to_str().map_err(|_| StatusCode::RANGE_NOT_SATISFIABLE)?;
+    let raw = raw
+        .strip_prefix("bytes=")
+        .ok_or(StatusCode::RANGE_NOT_SATISFIABLE)?;
+
+    if raw.contains(',') {
+        return Err(StatusCode::RANGE_NOT_SATISFIABLE);
+    }
+
+    let (start_raw, end_raw) = raw
+        .split_once('-')
+        .ok_or(StatusCode::RANGE_NOT_SATISFIABLE)?;
+
+    if size == 0 {
+        return Err(StatusCode::RANGE_NOT_SATISFIABLE);
+    }
+
+    let last = size - 1;
+
+    let (start, end) = if start_raw.is_empty() {
+        let suffix_len: u64 = end_raw
+            .parse()
+            .map_err(|_| StatusCode::RANGE_NOT_SATISFIABLE)?;
+        if suffix_len == 0 {
+            return Err(StatusCode::RANGE_NOT_SATISFIABLE);
+        }
+        let start = size.saturating_sub(suffix_len);
+        (start, last)
+    } else {
+        let start: u64 = start_raw
+            .parse()
+            .map_err(|_| StatusCode::RANGE_NOT_SATISFIABLE)?;
+        let end = if end_raw.is_empty() {
+            last
+        } else {
+            end_raw
+                .parse()
+                .map_err(|_| StatusCode::RANGE_NOT_SATISFIABLE)?
+        };
+        (start, end)
+    };
+
+    if start > end || end >= size {
+        return Err(StatusCode::RANGE_NOT_SATISFIABLE);
+    }
+
+    Ok(Some((start, end)))
 }
 
 /// Spoofs `GET /repos/crosspoint-reader/crosspoint-reader/releases/latest`
