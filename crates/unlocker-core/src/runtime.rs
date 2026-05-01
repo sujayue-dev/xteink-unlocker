@@ -113,23 +113,44 @@ async fn wait_for_bridge_ip(helper: &Helper, timeout: Duration) -> Result<Ipv4Ad
     }
 }
 
-pub async fn await_espressif_lease(
+pub async fn await_device_lease(
     helper: &Helper,
+    bridge_ip: Ipv4Addr,
     timeout: Duration,
 ) -> Result<(String, String)> {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         let leases = helper.dhcpd_read().await.unwrap_or_default();
-        for l in leases {
+        let candidates: Vec<_> = leases
+            .into_iter()
+            .filter(|l| lease_matches_bridge(&l.ip, bridge_ip))
+            .collect();
+
+        for l in &candidates {
             if is_espressif_mac(&l.mac) {
-                return Ok((l.mac, l.ip));
+                return Ok((l.mac.clone(), l.ip.clone()));
             }
         }
+
+        if candidates.len() == 1 {
+            let l = &candidates[0];
+            return Ok((l.mac.clone(), l.ip.clone()));
+        }
+
         if tokio::time::Instant::now() >= deadline {
-            return Err(anyhow!("no Espressif client appeared within {timeout:?}"));
+            return Err(anyhow!("no hotspot client appeared within {timeout:?}"));
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
+}
+
+fn lease_matches_bridge(ip: &str, bridge_ip: Ipv4Addr) -> bool {
+    let Ok(ip) = ip.parse::<Ipv4Addr>() else {
+        return false;
+    };
+    let bridge = bridge_ip.octets();
+    let lease = ip.octets();
+    lease != bridge && lease[0..3] == bridge[0..3]
 }
 
 fn is_espressif_mac(mac: &str) -> bool {
