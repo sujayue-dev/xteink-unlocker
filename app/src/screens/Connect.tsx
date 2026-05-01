@@ -90,6 +90,8 @@ export function Connect({ state }: { state: StateKind }) {
           </Subhead>
         </div>
 
+        <SharingSlideshow />
+
         <ol className="space-y-3">
           <Step n={1} title="Open Internet Sharing" done={false} active={true}>
             <strong>System Settings → General → Sharing → Internet Sharing</strong>.
@@ -178,7 +180,7 @@ function LogPanel({ entries }: { entries: { ts: string; level: string; message: 
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [entries.length]);
 
   if (entries.length === 0) return null;
@@ -244,6 +246,116 @@ function Step({
         <div className="mt-1 text-sm text-stone-600">{children}</div>
       </div>
     </li>
+  );
+}
+
+const SHARING_SLIDES: { src: string; title: string; body: React.ReactNode }[] = [
+  {
+    src: "/sharing-help/01-general.png",
+    title: "1. Open System Settings → General → Sharing",
+    body: (
+      <>
+        In System Settings, click <strong>General</strong> in the sidebar, then
+        scroll the right pane to <strong>Sharing</strong>.
+      </>
+    ),
+  },
+  {
+    src: "/sharing-help/02-sharing-list.png",
+    title: "2. Find Internet Sharing",
+    body: (
+      <>
+        Scroll to the bottom of the Sharing pane. You'll see{" "}
+        <strong>Internet Sharing</strong> with a toggle. Don't toggle it yet —
+        click the <strong>(i)</strong> info button next to it first.
+      </>
+    ),
+  },
+  {
+    src: "/sharing-help/03-pick-source.png",
+    title: "3. Set the source to Xteink Unlocker",
+    body: (
+      <>
+        In the popover, set <strong>Share your connection from</strong> to{" "}
+        <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-xs text-stone-700">
+          Xteink Unlocker
+        </span>
+        .
+      </>
+    ),
+  },
+  {
+    src: "/sharing-help/04-toggle-on.png",
+    title: "4. Pick Wi-Fi, set a password, then toggle on",
+    body: (
+      <>
+        Check <strong>Wi-Fi</strong> in the "To devices using" list. Click{" "}
+        <strong>Wi-Fi Options</strong> and set a simple password like{" "}
+        <span className="font-mono text-stone-700">11111111</span> — you'll
+        type this on your Xteink. Then flip the <strong>Internet Sharing</strong>{" "}
+        toggle on at the top and click Start.
+      </>
+    ),
+  },
+];
+
+function SharingSlideshow() {
+  const [i, setI] = useState(0);
+  const slide = SHARING_SLIDES[i]!;
+  const prev = () => setI((v) => (v - 1 + SHARING_SLIDES.length) % SHARING_SLIDES.length);
+  const next = () => setI((v) => (v + 1) % SHARING_SLIDES.length);
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-serif text-base font-medium text-stone-900">
+          Visual walk-through
+        </h3>
+        <span className="font-mono text-xs text-stone-400">
+          {i + 1} / {SHARING_SLIDES.length}
+        </span>
+      </div>
+      <div className="mt-3 overflow-hidden rounded-lg border border-stone-200 bg-stone-50">
+        <img
+          src={slide.src}
+          alt={slide.title}
+          className="block w-full object-contain"
+        />
+      </div>
+      <p className="mt-3 text-sm font-medium text-stone-900">{slide.title}</p>
+      <p className="mt-1 text-sm text-stone-600">{slide.body}</p>
+      <div className="mt-4 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={prev}
+          className="rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-700 hover:border-stone-300 disabled:opacity-50"
+          disabled={SHARING_SLIDES.length < 2}
+        >
+          ← Previous
+        </button>
+        <div className="flex gap-1.5">
+          {SHARING_SLIDES.map((_, idx) => (
+            <button
+              key={idx}
+              type="button"
+              aria-label={`Go to slide ${idx + 1}`}
+              onClick={() => setI(idx)}
+              className={`size-2 rounded-full transition ${
+                idx === i ? "bg-brand-500" : "bg-stone-300 hover:bg-stone-400"
+              }`}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={next}
+          className="rounded-md border border-stone-200 bg-white px-3 py-1.5 text-sm text-stone-700 hover:border-stone-300 disabled:opacity-50"
+          disabled={SHARING_SLIDES.length < 2}
+        >
+          Next →
+        </button>
+      </div>
+    </Card>
   );
 }
 
