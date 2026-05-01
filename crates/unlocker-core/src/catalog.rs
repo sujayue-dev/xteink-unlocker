@@ -13,16 +13,41 @@ pub fn cache_dir() -> Result<PathBuf> {
     Ok(dir)
 }
 
+fn catalog_cache_path() -> Result<PathBuf> {
+    let base = dirs::data_dir().ok_or_else(|| anyhow!("no data dir"))?;
+    let dir = base.join("XteinkUnlocker");
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir.join("catalog.json"))
+}
+
+fn read_cached_catalog() -> Result<Catalog> {
+    let path = catalog_cache_path()?;
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("reading cached catalog from {}", path.display()))?;
+    serde_json::from_slice(&bytes).context("decoding cached catalog")
+}
+
+fn write_cached_catalog(catalog: &Catalog) -> Result<()> {
+    let path = catalog_cache_path()?;
+    let bytes = serde_json::to_vec_pretty(catalog)?;
+    std::fs::write(&path, bytes)
+        .with_context(|| format!("writing cached catalog to {}", path.display()))?;
+    Ok(())
+}
+
 pub async fn fetch_catalog(client: &reqwest::Client) -> Result<Catalog> {
     // The companion catalog spec is owned by the user; we treat it as live.
-    // If unreachable, surface the error to the UI.
+    // If unreachable, fall back to the most recently cached live catalog.
     match client.get(CATALOG_URL).send().await {
         Ok(resp) if resp.status().is_success() => {
             let cat: Catalog = resp.json().await.context("decoding catalog")?;
+            let _ = write_cached_catalog(&cat);
             Ok(cat)
         }
-        Ok(resp) => Err(anyhow!("catalog HTTP {}", resp.status())),
-        Err(e) => Err(anyhow!("catalog fetch failed: {e}")),
+        Ok(resp) => read_cached_catalog()
+            .with_context(|| format!("catalog HTTP {}", resp.status())),
+        Err(e) => read_cached_catalog()
+            .with_context(|| format!("catalog fetch failed: {e}")),
     }
 }
 
