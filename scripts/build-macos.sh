@@ -50,20 +50,31 @@ if [[ -n "${1:-}" ]]; then
     fi
 fi
 
-# ── Build helper first so we can inject it post-bundle ──
-echo "==> Building unlocker-helper (release)"
-cargo build --release -p unlocker-helper
+# ── Ensure both Apple Silicon + Intel rust targets are installed ──
+echo "==> Ensuring rust targets for universal build"
+rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null
 
-HELPER_BIN_SRC="${REPO_ROOT}/target/release/unlocker-helper"
+# ── Build helper as a universal binary so we can inject it post-bundle ──
+echo "==> Building unlocker-helper (release, universal)"
+cargo build --release --target aarch64-apple-darwin -p unlocker-helper
+cargo build --release --target x86_64-apple-darwin -p unlocker-helper
+
+HELPER_BIN_SRC="${REPO_ROOT}/target/universal-apple-darwin/release/unlocker-helper"
+mkdir -p "$(dirname "${HELPER_BIN_SRC}")"
+lipo -create \
+    "${REPO_ROOT}/target/aarch64-apple-darwin/release/unlocker-helper" \
+    "${REPO_ROOT}/target/x86_64-apple-darwin/release/unlocker-helper" \
+    -output "${HELPER_BIN_SRC}"
 [[ -x "${HELPER_BIN_SRC}" ]] || { echo "helper binary missing: ${HELPER_BIN_SRC}" >&2; exit 1; }
+file "${HELPER_BIN_SRC}"
 
-# ── Build the Tauri app ──
-echo "==> Building Tauri app"
-( cd app && npm run tauri build )
+# ── Build the Tauri app (universal) ──
+echo "==> Building Tauri app (universal)"
+( cd app && npm run tauri build -- --target universal-apple-darwin )
 
 # Locate the produced .app / .dmg.
-APP_PATH=$(find target/release/bundle/macos -name "*.app" -type d 2>/dev/null | head -1)
-DMG_PATH=$(find target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
+APP_PATH=$(find target/universal-apple-darwin/release/bundle/macos -name "*.app" -type d 2>/dev/null | head -1)
+DMG_PATH=$(find target/universal-apple-darwin/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
 
 [[ -d "${APP_PATH}" ]] || { echo "no .app produced by tauri build" >&2; exit 1; }
 echo "==> App bundle: ${APP_PATH}"
@@ -108,7 +119,7 @@ codesign -d --entitlements - "${HELPER_BIN_DST}" 2>&1 | grep -q "com.apple.secur
 
 # ── Notarize the .app ──
 echo "==> Notarizing app"
-APP_ZIP="target/release/bundle/Unlocker.zip"
+APP_ZIP="target/universal-apple-darwin/release/bundle/Unlocker.zip"
 ditto -c -k --keepParent "${APP_PATH}" "${APP_ZIP}"
 xcrun notarytool submit "${APP_ZIP}" \
     --apple-id "${APPLE_ID}" \
@@ -159,7 +170,7 @@ fi
 
 # ── Update bundle for Tauri auto-update ──
 VERSION=$(grep '"version"' app/src-tauri/tauri.conf.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
-TAR_FILE="target/release/bundle/XteinkUnlocker_${VERSION}_darwin-aarch64.app.tar.gz"
+TAR_FILE="target/universal-apple-darwin/release/bundle/XteinkUnlocker_${VERSION}_darwin-universal.app.tar.gz"
 echo "==> Creating update bundle ${TAR_FILE}"
 COPYFILE_DISABLE=1 tar -czf "${TAR_FILE}" -C "$(dirname "${APP_PATH}")" "$(basename "${APP_PATH}")"
 

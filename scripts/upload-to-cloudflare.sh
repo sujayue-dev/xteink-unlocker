@@ -85,13 +85,13 @@ upload_file() {
 echo
 echo "=== Uploading macOS artifacts ==="
 
-DMG_FILE=$(find target/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
-[[ -n "${DMG_FILE:-}" ]] && upload_file "$DMG_FILE" "v${VERSION}/XteinkUnlocker_${VERSION}_aarch64.dmg"
+DMG_FILE=$(find target/universal-apple-darwin/release/bundle/dmg -name "*.dmg" 2>/dev/null | head -1)
+[[ -n "${DMG_FILE:-}" ]] && upload_file "$DMG_FILE" "v${VERSION}/XteinkUnlocker_${VERSION}_universal.dmg"
 
-TAR_FILE="target/release/bundle/XteinkUnlocker_${VERSION}_darwin-aarch64.app.tar.gz"
+TAR_FILE="target/universal-apple-darwin/release/bundle/XteinkUnlocker_${VERSION}_darwin-universal.app.tar.gz"
 if [[ -f "$TAR_FILE" ]]; then
-  upload_file "$TAR_FILE" "v${VERSION}/XteinkUnlocker_${VERSION}_darwin-aarch64.app.tar.gz"
-  [[ -f "${TAR_FILE}.sig" ]] && upload_file "${TAR_FILE}.sig" "v${VERSION}/XteinkUnlocker_${VERSION}_darwin-aarch64.app.tar.gz.sig"
+  upload_file "$TAR_FILE" "v${VERSION}/XteinkUnlocker_${VERSION}_darwin-universal.app.tar.gz"
+  [[ -f "${TAR_FILE}.sig" ]] && upload_file "${TAR_FILE}.sig" "v${VERSION}/XteinkUnlocker_${VERSION}_darwin-universal.app.tar.gz.sig"
 else
   echo "Warning: $TAR_FILE not found — run build-macos.sh first" >&2
 fi
@@ -126,7 +126,12 @@ if [[ -n "$MAC_SIG" ]]; then
       | .platforms["darwin-aarch64"] = {
           "signature": $mac_sig,
           "url": ("https://unlocker-releases.crosspointreader.com/v" + $ver +
-                  "/XteinkUnlocker_" + $ver + "_darwin-aarch64.app.tar.gz")
+                  "/XteinkUnlocker_" + $ver + "_darwin-universal.app.tar.gz")
+        }
+      | .platforms["darwin-x86_64"] = {
+          "signature": $mac_sig,
+          "url": ("https://unlocker-releases.crosspointreader.com/v" + $ver +
+                  "/XteinkUnlocker_" + $ver + "_darwin-universal.app.tar.gz")
         }' "$LATEST_JSON" > "${LATEST_JSON}.tmp" \
     && mv "${LATEST_JSON}.tmp" "$LATEST_JSON"
 
