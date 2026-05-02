@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { api } from "../api";
 import { SecondaryButton } from "./ui";
+import { CheckForUpdatesLink } from "./CheckForUpdatesLink";
 import type { StateKind } from "../types";
 
 const STEPS: { id: string; label: string; states: StateKind[] }[] = [
@@ -104,14 +105,17 @@ export function Shell({
 
       <footer className="mt-10 flex items-center justify-between text-xs text-stone-400">
         <span>CrossPoint Reader · MIT licensed</span>
-        <a
-          href="https://crosspointreader.com"
-          className="hover:text-stone-600"
-          target="_blank"
-          rel="noreferrer"
-        >
-          crosspointreader.com
-        </a>
+        <div className="flex items-center gap-4">
+          <CheckForUpdatesLink />
+          <a
+            href="https://crosspointreader.com"
+            className="hover:text-stone-600"
+            target="_blank"
+            rel="noreferrer"
+          >
+            crosspointreader.com
+          </a>
+        </div>
       </footer>
     </div>
   );

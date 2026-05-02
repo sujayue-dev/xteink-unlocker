@@ -1,0 +1,12 @@
+name = "unlocker-releases"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+account_id = "73f82799694e2fad048f544e0be28c1c"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "unlocker-releases"
+
+[[routes]]
+pattern = "unlocker-releases.crosspointreader.com"
+custom_domain = true

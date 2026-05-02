@@ -12,7 +12,13 @@ app/
   src/              React + Tailwind frontend
   src-tauri/        Tauri 2 shell, embeds the LaunchDaemon plist
 scripts/
-  build-macos.sh    full release pipeline: tauri build → inject helper → sign → notarize → update bundle
+  bump-version.sh         bump tauri.conf + Cargo.toml + package.json (major|minor|patch)
+  build-macos.sh          tauri build → inject helper → sign → notarize → update bundle
+  upload-to-cloudflare.sh push artifacts to R2 + refresh latest.json
+  release.sh              the whole pipeline: bump → build → commit → tag → push → upload
+workers/
+  releases/               Cloudflare Worker fronting the R2 bucket at
+                          unlocker-releases.crosspointreader.com
 ```
 
 ## Bundle identifiers
@@ -83,6 +89,32 @@ Output:
 - Signed + notarized app at `target/release/bundle/macos/Xteink Unlocker.app`
 - Signed + notarized DMG at `target/release/bundle/dmg/`
 - Auto-update tarball at `target/release/bundle/XteinkUnlocker_<version>_darwin-aarch64.app.tar.gz` (signed if `TAURI_SIGNING_PRIVATE_KEY` is set)
+
+### Cutting a release (full pipeline)
+
+```bash
+./scripts/release.sh patch
+```
+
+Bumps the version, builds + signs + notarizes, commits the version files, tags `vX.Y.Z`, pushes, and uploads to Cloudflare R2. After this completes, existing installs see the update on next launch (within 3s of opening the app) or when the user clicks **Check for updates** in the footer.
+
+### Auto-update infrastructure
+
+- **Endpoint:** `https://unlocker-releases.crosspointreader.com/latest.json`
+- **Bucket:** `unlocker-releases` on Cloudflare R2 (account `73f82799694e2fad048f544e0be28c1c`)
+- **Worker:** `workers/releases/` — deploy with `cd workers/releases && npx wrangler deploy`
+- **Public key** (paste into the worker route or whatever consumes `latest.json` if you ever need to verify outside Tauri):
+  ```
+  dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY1RDVFOTA2OTQzN0NCMTkKUldRWnl6ZVVCdW5WOVpyaHR0anNZRm5jNlBEaFk3WWJvbkpSdDdxbC9XSmQ5N0pZcitGK1d5YUMK
+  ```
+
+First-time setup:
+
+1. Create the `unlocker-releases` R2 bucket in the SoFriendly Cloudflare account.
+2. Create an R2 API token scoped to that bucket; paste keys into `.env.local`.
+3. Add the DNS record for `unlocker-releases.crosspointreader.com` → Cloudflare Workers route.
+4. `cd workers/releases && npm install && npx wrangler deploy`.
+5. `./scripts/release.sh patch` to cut the first release.
 
 ## SMAppService flow at runtime
 
