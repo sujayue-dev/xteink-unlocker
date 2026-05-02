@@ -97,11 +97,27 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
         .ok_or("non-utf8 helper path")?
         .replace('\'', "'\\''");
 
-    // Kill any stale helper from a previous run, then start fresh under nohup so
-    // it survives the parent shell exiting. Redirect stdio so it doesn't get
-    // SIGPIPE'd when the controlling terminal goes away.
+    // Kill any stale helper from a previous run, then start fresh.
+    //
+    // Notes:
+    //   * No nohup. macOS nohup, when run from the osascript admin trampoline
+    //     (no real tty on stdout), prints "can't detach from console:
+    //     Inappropriate ioctl for device" and exits *without* exec'ing the
+    //     target — so the helper never started. Plain `&` works because
+    //     non-interactive sh has no job control and doesn't SIGHUP children.
+    //   * </dev/null detaches stdin so the helper can't be SIGPIPE'd if the
+    //     auth trampoline closes its end.
+    //   * We echo our own breadcrumbs into the stdout log so that if the
+    //     helper itself never runs, we still see how far the script got.
     let script = format!(
-        "do shell script \"pkill unlocker-helper 2>/dev/null; sleep 1; nohup '{path_str}' >/tmp/unlocker-helper.stdout 2>&1 </dev/null &\" with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" with administrator privileges"
+        "do shell script \"\
+            echo \\\"[$(date +%H:%M:%S)] install_helper as $(whoami), launching '{path_str}'\\\" >>/tmp/unlocker-helper.stdout; \
+            pkill unlocker-helper 2>/dev/null; \
+            sleep 1; \
+            '{path_str}' </dev/null >>/tmp/unlocker-helper.stdout 2>&1 & \
+            echo \\\"[$(date +%H:%M:%S)] backgrounded pid=$!\\\" >>/tmp/unlocker-helper.stdout\" \
+            with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" \
+            with administrator privileges"
     );
 
     let status = tokio::process::Command::new("osascript")
