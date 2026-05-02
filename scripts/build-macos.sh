@@ -137,9 +137,11 @@ if [[ -n "${DMG_PATH}" && -f "${DMG_PATH}" ]]; then
     rm -rf "${DMG_STAGING}"
 
     echo "==> Verifying DMG contains helper"
-    DMG_MOUNT=$(hdiutil attach "${DMG_PATH}" -nobrowse -readonly | tail -1 | awk '{print $NF}')
+    DMG_MOUNT="$(mktemp -d)/mnt"
+    mkdir -p "${DMG_MOUNT}"
+    hdiutil attach "${DMG_PATH}" -nobrowse -readonly -mountpoint "${DMG_MOUNT}" >/dev/null
     if [[ ! -x "${DMG_MOUNT}/$(basename "${APP_PATH}")/Contents/MacOS/unlocker-helper" ]]; then
-        hdiutil detach "${DMG_MOUNT}" -force >/dev/null
+        hdiutil detach "${DMG_MOUNT}" -force >/dev/null || true
         echo "ERROR: rebuilt DMG is missing the helper" >&2
         exit 1
     fi
