@@ -1,16 +1,29 @@
 # Xteink Unlocker
 
-Desktop app that installs CrossPoint Reader on USB-locked Xteink X3/X4 devices by intercepting their OTA update mechanism. See [`xteink-unlocker-spec.md`](./xteink-unlocker-spec.md).
+Desktop app that installs CrossPoint Reader on USB-locked Xteink X3/X4 devices by intercepting their OTA update mechanism.
+
+- [`xteink-unlocker-spec.md`](./xteink-unlocker-spec.md) — product spec
+- [`INTEGRATION.md`](./INTEGRATION.md) — guide for pointing Unlocker at a different firmware (catalog + image requirements, including the X3 eFuse blk validity workaround)
+- [`crosspointreader-com-catalog-spec.md`](./crosspointreader-com-catalog-spec.md) — catalog endpoint schema and rationale
+
+## How it works
+
+1. The Mac becomes a Wi-Fi hotspot via a `feth` virtual upstream + Internet Sharing.
+2. The privileged helper runs DNS / HTTP / HTTPS listeners bound to the bridge IP. DNS spoofs the locale's Xteink API host (`api-prod.xteink.cc` / `.cn`); HTTPS uses a self-signed cert with the right SAN (stock doesn't validate the chain).
+3. The user taps **Check for Updates** on the device. The spoofed `/api/v1/check-update` returns a manifest pointing at firmware Unlocker also serves over plain HTTP on the bridge IP.
+4. The device installs via its own `esp_https_ota` flow.
+
+The firmware Unlocker serves comes from a **catalog** — currently `https://crosspointreader.com/api/catalog`. For other firmwares, see [`INTEGRATION.md`](./INTEGRATION.md).
 
 ## Layout
 
 ```
 crates/
   unlocker-core/    library: orchestrator, runtime, manifest server, DNS, certs, catalog, helper RPC client
-  unlocker-helper/  privileged helper binary (LaunchDaemon, registered via SMAppService)
+  unlocker-helper/  privileged helper binary (runs as root via osascript admin prompt)
 app/
   src/              React + Tailwind frontend
-  src-tauri/        Tauri 2 shell, embeds the LaunchDaemon plist
+  src-tauri/        Tauri 2 shell
 scripts/
   bump-version.sh         bump tauri.conf + Cargo.toml + package.json (major|minor|patch)
   build-macos.sh          tauri build → inject helper → sign → notarize → update bundle
@@ -39,25 +52,23 @@ npm run build
 npm run tauri dev
 ```
 
-In dev mode the helper isn't installed via SMAppService. To exercise the helper path locally:
+In dev mode the bundled helper isn't available. To exercise the helper path locally, build it and let the app launch it on demand via the admin prompt:
 
 ```bash
 cargo build --release -p unlocker-helper
-sudo cp target/release/unlocker-helper /Library/PrivilegedHelperTools/
-sudo cp app/src-tauri/LaunchDaemons/com.sofriendly.crosspoint.unlocker.helper.plist /Library/LaunchDaemons/
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.sofriendly.crosspoint.unlocker.helper.plist
 ```
+
+The signed app bundles the helper binary at `Contents/MacOS/unlocker-helper` and launches it as root on demand via `osascript`'s admin password prompt — no LaunchDaemon, no SMAppService, no provisioning profile. The helper writes a crash-recovery state file to `/var/db/com.sofriendly.crosspoint.unlocker.helper.state.json` and reverses any leftover changes (pfctl rules, `feth` interfaces, NAT plist) on next launch.
 
 ## Signed builds
 
 `scripts/build-macos.sh` runs the full pipeline:
 
 1. `tauri build` — produces the `.app` and `.dmg`
-2. Inject helper binary into `Contents/MacOS/unlocker-helper`
-3. Inject LaunchDaemon plist into `Contents/Library/LaunchDaemons/`
-4. Sign the helper, re-sign the bundle (so SMAppService sees a consistent signature)
-5. Notarize `.app` and `.dmg` with `xcrun notarytool`, staple
-6. Produce a signed `.tar.gz` for Tauri auto-update
+2. Inject the helper binary into `Contents/MacOS/unlocker-helper`
+3. Sign the helper, re-sign the bundle for a consistent signature
+4. Notarize `.app` and `.dmg` with `xcrun notarytool`, staple
+5. Produce a signed `.tar.gz` for Tauri auto-update
 
 Apple Team: **SoFriendly LLC (`2H66PPM438`)** — already wired into `tauri.conf.json` (`providerShortName`) and the build script's default identity.
 
@@ -116,17 +127,13 @@ First-time setup:
 4. `cd workers/releases && npm install && npx wrangler deploy`.
 5. `./scripts/release.sh patch` to cut the first release.
 
-## SMAppService flow at runtime
+## Helper launch at runtime
 
-On first launch, the app calls `helper_status` (Tauri command). If the helper isn't yet registered, the UI shows an install screen; clicking the button calls `install_helper`, which invokes `SMAppService.daemon(plistName:).register()`. macOS prompts the user to approve in System Settings → Login Items & Extensions. Once approved, the helper LaunchDaemon starts, the app's status check sees the socket, and the wizard begins.
-
-The relevant macOS bindings live in `app/src-tauri/src/smapp.rs` (objc2-based).
+When the orchestrator needs the helper, the app shells out to `osascript` with an admin password prompt and exec's `unlocker-helper` from inside the bundle as root. This replaced an earlier SMAppService/LaunchDaemon design that ran into provisioning-profile requirements on macOS 26. The helper exits when the app does (or via explicit teardown RPC); next session, a fresh prompt.
 
 ## Status
 
-v0.1 — Real systems work in. Privileged helper drives `feth` virtual upstream + Internet Sharing + pfctl + dhcpd lease watching via shell-outs to system tools. DNS / HTTP / HTTPS spoofing servers run inside the helper, bound to the bridge IP. Orchestrator state machine drives the wizard end-to-end.
-
-Untested against a real Xteink. Discovery item D11 (does macOS Internet Sharing accept `feth` as upstream on macOS 14/15?) is the remaining architectural risk.
+Real systems work in. Privileged helper drives `feth` virtual upstream + Internet Sharing + pfctl + dhcpd lease watching via shell-outs to system tools. DNS / HTTP / HTTPS spoofing servers run inside the helper, bound to the bridge IP. Orchestrator state machine drives the wizard end-to-end. Working installs against stock X3 require the bootloader-validation override described in [`INTEGRATION.md` §2.4](./INTEGRATION.md#24-the-x3-efuse-blk-validity-gotcha-critical) — already shipped in CrossPoint.
 
 ## License
 
