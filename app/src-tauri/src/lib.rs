@@ -97,10 +97,11 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
         .ok_or("non-utf8 helper path")?
         .replace('\'', "'\\''");
 
-    // Kill any stale helper from a previous run, then start fresh.
-    // Use pkill with the exact binary name (not -f) to avoid matching the shell itself.
+    // Kill any stale helper from a previous run, then start fresh under nohup so
+    // it survives the parent shell exiting. Redirect stdio so it doesn't get
+    // SIGPIPE'd when the controlling terminal goes away.
     let script = format!(
-        "do shell script \"pkill unlocker-helper 2>/dev/null; sleep 1; '{path_str}' &> /dev/null &\" with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" with administrator privileges"
+        "do shell script \"pkill unlocker-helper 2>/dev/null; sleep 1; nohup '{path_str}' >/tmp/unlocker-helper.stdout 2>&1 </dev/null &\" with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" with administrator privileges"
     );
 
     let status = tokio::process::Command::new("osascript")
@@ -113,15 +114,51 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
         return Err("user cancelled or authorization failed".into());
     }
 
-    // Wait for the helper to start listening on the socket.
+    // Wait for the helper to start listening on the socket. 10s gives slow
+    // machines and first-launch Gatekeeper checks time to settle.
     let helper = Helper::new();
-    for _ in 0..10 {
+    for _ in 0..20 {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
         if helper.ping().await.is_ok() {
             return Ok(());
         }
     }
-    Err("helper started but socket not reachable after 5s".into())
+
+    Err(helper_launch_failure_message(&helper_path))
+}
+
+/// Build a diagnostic error message when the helper launches but never reaches
+/// the socket. Includes whether the process is alive and the tail of its logs
+/// so the user can paste something useful into a bug report.
+fn helper_launch_failure_message(helper_path: &std::path::Path) -> String {
+    let mut msg = String::from("helper started but socket not reachable after 10s");
+
+    let running = std::process::Command::new("pgrep")
+        .args(["-x", "unlocker-helper"])
+        .output()
+        .ok()
+        .map(|o| !o.stdout.is_empty())
+        .unwrap_or(false);
+    msg.push_str(&format!("\n• process running: {running}"));
+
+    let socket = std::path::Path::new("/var/run/com.sofriendly.crosspoint.unlocker.helper.sock");
+    msg.push_str(&format!("\n• socket exists: {}", socket.exists()));
+    msg.push_str(&format!("\n• helper path: {}", helper_path.display()));
+    msg.push_str(&format!(
+        "\n• helper exists: {}",
+        helper_path.exists()
+    ));
+
+    for log in ["/tmp/unlocker-helper.log", "/tmp/unlocker-helper.stdout"] {
+        if let Ok(content) = std::fs::read_to_string(log) {
+            let tail: String = content.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+            if !tail.is_empty() {
+                msg.push_str(&format!("\n--- {log} (last 20 lines) ---\n{tail}"));
+            }
+        }
+    }
+
+    msg
 }
 
 #[tauri::command]

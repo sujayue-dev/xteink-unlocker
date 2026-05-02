@@ -3,9 +3,9 @@
 #
 #  1. tauri build      — produces the .app and .dmg
 #  2. inject helper    — copies unlocker-helper into Contents/MacOS/
-#                        and the LaunchDaemon plist into Contents/Library/LaunchDaemons/
-#  3. re-sign          — codesigns the helper, then re-signs the bundle so
-#                        SMAppService sees a consistent signature
+#  3. re-sign          — codesigns the helper with helper-entitlements,
+#                        then re-signs the bundle WITHOUT --deep so the
+#                        helper's entitlements survive
 #  4. notarize         — submits .app and .dmg to Apple, staples on success
 #  5. update bundle    — produces a signed tar.gz for Tauri auto-update
 #
@@ -84,15 +84,27 @@ codesign --force \
     "${HELPER_BIN_DST}"
 
 echo "==> Re-signing app bundle"
+# Important: NO --deep here. The helper at Contents/MacOS/unlocker-helper was
+# just signed with helper-entitlements.plist. --deep would re-sign it with the
+# *app*'s entitlements, which produces a hardened-runtime helper that fails to
+# launch under `osascript ... with administrator privileges`. Apple deprecated
+# --deep for this exact reason. Without --deep, codesign only updates the
+# bundle's Code Resources catalog and leaves the helper's signature alone.
 codesign --remove-signature "${APP_PATH}" || true
 codesign --force \
     --options runtime \
     --timestamp \
-    --deep \
     --entitlements app/src-tauri/entitlements.plist \
     --sign "${APPLE_CERTIFICATE_IDENTITY}" \
     "${APP_PATH}"
 codesign --verify --strict --deep --verbose=2 "${APP_PATH}"
+
+# Belt-and-braces: confirm the helper still carries helper-entitlements
+# (no com.apple.security.network.client leaked in from the app entitlements).
+echo "==> Verifying helper entitlements"
+codesign -d --entitlements - "${HELPER_BIN_DST}" 2>&1 | grep -q "com.apple.security.network.client" \
+    && { echo "ERROR: helper has app entitlements — re-sign clobbered it" >&2; exit 1; } \
+    || echo "  helper entitlements look correct"
 
 # ── Notarize the .app ──
 echo "==> Notarizing app"
