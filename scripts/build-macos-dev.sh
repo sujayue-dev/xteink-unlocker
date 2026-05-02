@@ -57,11 +57,12 @@ codesign --force \
     "${HELPER_BIN_DST}"
 
 echo "==> Re-signing app bundle"
+# No --deep: it re-applies the *app*'s entitlements to the helper, clobbering
+# the helper-entitlements signing above. See build-macos.sh for the long form.
 codesign --remove-signature "${APP_PATH}" || true
 codesign --force \
     --options runtime \
     --timestamp \
-    --deep \
     --entitlements app/src-tauri/entitlements.plist \
     --sign "${APPLE_CERTIFICATE_IDENTITY}" \
     "${APP_PATH}"
