@@ -1,8 +1,8 @@
 //! Privileged helper for Xteink Unlocker.
 //!
-//! Runs as root (LaunchDaemon, registered via SMAppService) and exposes a
-//! tiny JSON-RPC protocol over a Unix domain socket. Owns:
-//!   * macOS network state (Internet Sharing, pfctl, dhcpd_leases).
+//! Runs elevated and exposes a tiny JSON-RPC protocol over a platform-native
+//! transport (Unix domain socket on macOS, named pipe on Windows). Owns:
+//!   * Network state (Internet Sharing / Mobile Hotspot, NAT, lease watching).
 //!   * The spoofing servers (DNS / HTTP / HTTPS) bound to privileged ports.
 //!
 //! The unprivileged main process drives us via RPC; we never run untrusted
@@ -15,20 +15,29 @@ mod state;
 
 use proto::{Request, Response};
 use servers::ServerHolder;
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::{UnixListener, UnixStream};
+use unlocker_core::transport::{self, Listener, Stream};
 
-fn socket_path() -> PathBuf {
-    PathBuf::from("/var/run/com.sofriendly.crosspoint.unlocker.helper.sock")
+fn log_path() -> std::path::PathBuf {
+    #[cfg(unix)]
+    {
+        std::path::PathBuf::from("/tmp/unlocker-helper.log")
+    }
+    #[cfg(windows)]
+    {
+        let base = std::env::var_os("ProgramData")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"));
+        let dir = base.join("CrossPoint").join("unlocker-helper");
+        let _ = std::fs::create_dir_all(&dir);
+        dir.join("unlocker-helper.log")
+    }
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let log_file = std::fs::File::create("/tmp/unlocker-helper.log")
-        .expect("cannot create /tmp/unlocker-helper.log");
+    let log_file = std::fs::File::create(log_path()).expect("cannot create helper log file");
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -37,18 +46,9 @@ async fn main() -> anyhow::Result<()> {
         .with_writer(std::sync::Mutex::new(log_file))
         .init();
 
-    let path = socket_path();
-    let _ = std::fs::remove_file(&path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).ok();
-    }
-    let listener = UnixListener::bind(&path)?;
-
-    let mut perm = std::fs::metadata(&path)?.permissions();
-    perm.set_mode(0o666);
-    std::fs::set_permissions(&path, perm)?;
-
-    tracing::info!(?path, "helper listening");
+    let endpoint = transport::endpoint();
+    let listener = Listener::bind(&endpoint)?;
+    tracing::info!(%endpoint, "helper listening");
 
     if let Err(e) = state::recover().await {
         tracing::warn!(?e, "state recovery had issues");
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     let servers = ServerHolder::new();
 
     loop {
-        let (stream, _) = listener.accept().await?;
+        let stream = listener.accept().await?;
         let s = servers.clone();
         tokio::spawn(async move {
             if let Err(e) = handle(stream, s).await {
@@ -67,8 +67,8 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn handle(stream: UnixStream, servers: Arc<ServerHolder>) -> anyhow::Result<()> {
-    let (r, mut w) = stream.into_split();
+async fn handle(stream: Stream, servers: Arc<ServerHolder>) -> anyhow::Result<()> {
+    let (r, mut w) = tokio::io::split(stream);
     let mut lines = BufReader::new(r).lines();
     while let Some(line) = lines.next_line().await? {
         let resp = match serde_json::from_str::<Request>(&line) {
@@ -80,6 +80,7 @@ async fn handle(stream: UnixStream, servers: Arc<ServerHolder>) -> anyhow::Resul
         let mut bytes = serde_json::to_vec(&resp)?;
         bytes.push(b'\n');
         w.write_all(&bytes).await?;
+        w.flush().await?;
     }
     Ok(())
 }

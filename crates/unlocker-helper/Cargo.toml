@@ -16,5 +16,10 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-plist = "1.7"
 unlocker-core = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1.7"
+
+[target.'cfg(windows)'.build-dependencies]
+embed-manifest = "1.4"

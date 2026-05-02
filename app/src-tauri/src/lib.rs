@@ -82,56 +82,123 @@ async fn helper_status(state: State<'_, AppState>) -> Result<HelperStatus, Strin
     })
 }
 
-#[tauri::command]
-async fn install_helper(app: AppHandle) -> Result<(), String> {
-    let helper_path = app
+#[cfg(target_os = "macos")]
+fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
         .path()
         .resource_dir()
         .map_err(|e| e.to_string())?
         .parent()
         .ok_or("can't resolve bundle path")?
-        .join("MacOS/unlocker-helper");
+        .join("MacOS/unlocker-helper"))
+}
 
-    let path_str = helper_path
-        .to_str()
-        .ok_or("non-utf8 helper path")?
-        .replace('\'', "'\\''");
+#[cfg(target_os = "windows")]
+fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    // Tauri's `bundle.resources` puts the helper under the resource_dir on
+    // Windows. Fall back to the exe's directory in case a future config
+    // change drops it next to the app exe.
+    let resource = app
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("unlocker-helper.exe");
+    if resource.exists() {
+        return Ok(resource);
+    }
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let dir = exe.parent().ok_or("can't resolve install dir")?;
+    Ok(dir.join("unlocker-helper.exe"))
+}
 
-    // Kill any stale helper from a previous run, then start fresh.
-    //
-    // Notes:
-    //   * No nohup. macOS nohup, when run from the osascript admin trampoline
-    //     (no real tty on stdout), prints "can't detach from console:
-    //     Inappropriate ioctl for device" and exits *without* exec'ing the
-    //     target — so the helper never started. Plain `&` works because
-    //     non-interactive sh has no job control and doesn't SIGHUP children.
-    //   * </dev/null detaches stdin so the helper can't be SIGPIPE'd if the
-    //     auth trampoline closes its end.
-    //   * We echo our own breadcrumbs into the stdout log so that if the
-    //     helper itself never runs, we still see how far the script got.
-    let script = format!(
-        "do shell script \"\
-            echo \\\"[$(date +%H:%M:%S)] install_helper as $(whoami), launching '{path_str}'\\\" >>/tmp/unlocker-helper.stdout; \
-            pkill unlocker-helper 2>/dev/null; \
-            sleep 1; \
-            '{path_str}' </dev/null >>/tmp/unlocker-helper.stdout 2>&1 & \
-            echo \\\"[$(date +%H:%M:%S)] backgrounded pid=$!\\\" >>/tmp/unlocker-helper.stdout\" \
-            with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" \
-            with administrator privileges"
-    );
-
-    let status = tokio::process::Command::new("osascript")
-        .args(["-e", &script])
-        .status()
-        .await
-        .map_err(|e| format!("failed to run osascript: {e}"))?;
-
-    if !status.success() {
-        return Err("user cancelled or authorization failed".into());
+#[tauri::command]
+async fn install_helper(app: AppHandle) -> Result<(), String> {
+    let helper_path = helper_path(&app)?;
+    if !helper_path.exists() {
+        return Err(format!("helper not found at {}", helper_path.display()));
     }
 
-    // Wait for the helper to start listening on the socket. 10s gives slow
-    // machines and first-launch Gatekeeper checks time to settle.
+    #[cfg(target_os = "macos")]
+    {
+        let path_str = helper_path
+            .to_str()
+            .ok_or("non-utf8 helper path")?
+            .replace('\'', "'\\''");
+
+        // Kill any stale helper from a previous run, then start fresh.
+        //
+        // Notes:
+        //   * No nohup. macOS nohup, when run from the osascript admin trampoline
+        //     (no real tty on stdout), prints "can't detach from console:
+        //     Inappropriate ioctl for device" and exits *without* exec'ing the
+        //     target — so the helper never started. Plain `&` works because
+        //     non-interactive sh has no job control and doesn't SIGHUP children.
+        //   * </dev/null detaches stdin so the helper can't be SIGPIPE'd if the
+        //     auth trampoline closes its end.
+        //   * We echo our own breadcrumbs into the stdout log so that if the
+        //     helper itself never runs, we still see how far the script got.
+        let script = format!(
+            "do shell script \"\
+                echo \\\"[$(date +%H:%M:%S)] install_helper as $(whoami), launching '{path_str}'\\\" >>/tmp/unlocker-helper.stdout; \
+                pkill unlocker-helper 2>/dev/null; \
+                sleep 1; \
+                '{path_str}' </dev/null >>/tmp/unlocker-helper.stdout 2>&1 & \
+                echo \\\"[$(date +%H:%M:%S)] backgrounded pid=$!\\\" >>/tmp/unlocker-helper.stdout\" \
+                with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" \
+                with administrator privileges"
+        );
+
+        let status = tokio::process::Command::new("osascript")
+            .args(["-e", &script])
+            .status()
+            .await
+            .map_err(|e| format!("failed to run osascript: {e}"))?;
+
+        if !status.success() {
+            return Err("user cancelled or authorization failed".into());
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // Kill any stale helper, then re-launch elevated. UAC will prompt.
+        // The helper itself carries a requireAdministrator manifest so even a
+        // direct `Start-Process -Verb RunAs` would prompt; we go through
+        // PowerShell here so the same one-liner does the kill (also elevated).
+        let path_str = helper_path
+            .to_str()
+            .ok_or("non-utf8 helper path")?
+            .to_string();
+        let escaped = path_str.replace('\'', "''");
+        let inner = format!(
+            "Stop-Process -Name unlocker-helper -Force -ErrorAction SilentlyContinue; \
+             Start-Sleep -Milliseconds 500; \
+             Start-Process -FilePath '{escaped}' -WindowStyle Hidden"
+        );
+        // The outer Start-Process -Verb RunAs is what triggers the UAC prompt.
+        let outer = format!(
+            "Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden \
+             -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',\"{inner}\""
+        );
+        let status = tokio::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &outer,
+            ])
+            .status()
+            .await
+            .map_err(|e| format!("failed to run powershell: {e}"))?;
+        if !status.success() {
+            return Err("user cancelled or UAC denied".into());
+        }
+    }
+
+    // Wait for the helper to start listening. 10s gives slow machines and
+    // first-launch SmartScreen / Gatekeeper checks time to settle.
     let helper = Helper::new();
     for _ in 0..20 {
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -147,29 +214,62 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
 /// the socket. Includes whether the process is alive and the tail of its logs
 /// so the user can paste something useful into a bug report.
 fn helper_launch_failure_message(helper_path: &std::path::Path) -> String {
-    let mut msg = String::from("helper started but socket not reachable after 10s");
-
-    let running = std::process::Command::new("pgrep")
-        .args(["-x", "unlocker-helper"])
-        .output()
-        .ok()
-        .map(|o| !o.stdout.is_empty())
-        .unwrap_or(false);
-    msg.push_str(&format!("\n• process running: {running}"));
-
-    let socket = std::path::Path::new("/var/run/com.sofriendly.crosspoint.unlocker.helper.sock");
-    msg.push_str(&format!("\n• socket exists: {}", socket.exists()));
+    let mut msg = String::from("helper started but RPC channel not reachable after 10s");
     msg.push_str(&format!("\n• helper path: {}", helper_path.display()));
-    msg.push_str(&format!(
-        "\n• helper exists: {}",
-        helper_path.exists()
-    ));
+    msg.push_str(&format!("\n• helper exists: {}", helper_path.exists()));
 
-    for log in ["/tmp/unlocker-helper.log", "/tmp/unlocker-helper.stdout"] {
-        if let Ok(content) = std::fs::read_to_string(log) {
-            let tail: String = content.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+    #[cfg(target_os = "macos")]
+    {
+        let running = std::process::Command::new("pgrep")
+            .args(["-x", "unlocker-helper"])
+            .output()
+            .ok()
+            .map(|o| !o.stdout.is_empty())
+            .unwrap_or(false);
+        msg.push_str(&format!("\n• process running: {running}"));
+
+        let socket =
+            std::path::Path::new("/var/run/com.sofriendly.crosspoint.unlocker.helper.sock");
+        msg.push_str(&format!("\n• socket exists: {}", socket.exists()));
+
+        for log in ["/tmp/unlocker-helper.log", "/tmp/unlocker-helper.stdout"] {
+            if let Ok(content) = std::fs::read_to_string(log) {
+                let tail = tail_lines(&content, 20);
+                if !tail.is_empty() {
+                    msg.push_str(&format!("\n--- {log} (last 20 lines) ---\n{tail}"));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let running = std::process::Command::new("tasklist")
+            .args(["/FI", "IMAGENAME eq unlocker-helper.exe", "/NH"])
+            .output()
+            .ok()
+            .map(|o| {
+                String::from_utf8_lossy(&o.stdout)
+                    .to_lowercase()
+                    .contains("unlocker-helper.exe")
+            })
+            .unwrap_or(false);
+        msg.push_str(&format!("\n• process running: {running}"));
+
+        let log = std::env::var_os("ProgramData")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"))
+            .join("CrossPoint")
+            .join("unlocker-helper")
+            .join("unlocker-helper.log");
+        if let Ok(content) = std::fs::read_to_string(&log) {
+            let tail = tail_lines(&content, 20);
             if !tail.is_empty() {
-                msg.push_str(&format!("\n--- {log} (last 20 lines) ---\n{tail}"));
+                msg.push_str(&format!(
+                    "\n--- {} (last 20 lines) ---\n{}",
+                    log.display(),
+                    tail
+                ));
             }
         }
     }
@@ -177,16 +277,47 @@ fn helper_launch_failure_message(helper_path: &std::path::Path) -> String {
     msg
 }
 
+fn tail_lines(s: &str, n: usize) -> String {
+    let lines: Vec<&str> = s.lines().collect();
+    let start = lines.len().saturating_sub(n);
+    lines[start..].join("\n")
+}
+
 #[tauri::command]
 async fn uninstall_helper() -> Result<(), String> {
-    let script = "do shell script \"pkill -9 unlocker-helper\" with prompt \"Xteink Unlocker needs to stop its privileged helper.\" with administrator privileges";
-    let status = tokio::process::Command::new("osascript")
-        .args(["-e", script])
-        .status()
-        .await
-        .map_err(|e| format!("failed to run osascript: {e}"))?;
-    if !status.success() {
-        return Err("user cancelled or authorization failed".into());
+    #[cfg(target_os = "macos")]
+    {
+        let script = "do shell script \"pkill -9 unlocker-helper\" with prompt \"Xteink Unlocker needs to stop its privileged helper.\" with administrator privileges";
+        let status = tokio::process::Command::new("osascript")
+            .args(["-e", script])
+            .status()
+            .await
+            .map_err(|e| format!("failed to run osascript: {e}"))?;
+        if !status.success() {
+            return Err("user cancelled or authorization failed".into());
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Killing an elevated process requires elevation. We re-prompt UAC.
+        let outer = "Start-Process powershell.exe -Verb RunAs -WindowStyle Hidden \
+            -ArgumentList '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-Command',\
+            \"taskkill /F /IM unlocker-helper.exe\"";
+        let status = tokio::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                outer,
+            ])
+            .status()
+            .await
+            .map_err(|e| format!("failed to run powershell: {e}"))?;
+        if !status.success() {
+            return Err("user cancelled or UAC denied".into());
+        }
     }
     Ok(())
 }

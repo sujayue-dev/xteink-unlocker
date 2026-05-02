@@ -1,18 +1,17 @@
 //! Typed JSON-RPC client for the privileged helper.
 //!
-//! Each call opens a fresh Unix-socket connection so that long-blocking ops
+//! Each call opens a fresh connection so that long-blocking ops
 //! (WaitManifest / WaitFirmware) don't tie up other RPCs.
 
+use crate::transport;
 use crate::types::ArmServerSpec;
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream;
 
-pub fn socket_path() -> PathBuf {
-    PathBuf::from("/var/run/com.sofriendly.crosspoint.unlocker.helper.sock")
+pub fn socket_path() -> String {
+    transport::endpoint()
 }
 
 #[derive(Debug, Serialize)]
@@ -54,16 +53,16 @@ impl Helper {
     }
 
     async fn one_shot(&self, req: Request) -> Result<serde_json::Value> {
-        let stream = UnixStream::connect(socket_path())
+        let endpoint = transport::endpoint();
+        let stream = transport::connect(&endpoint)
             .await
-            .with_context(|| format!("connecting to helper at {}", socket_path().display()))?;
-        let (r, mut w) = stream.into_split();
+            .with_context(|| format!("connecting to helper at {}", endpoint))?;
+        let (r, mut w) = tokio::io::split(stream);
         let mut bytes = serde_json::to_vec(&req)?;
         bytes.push(b'\n');
         w.write_all(&bytes).await?;
-        // Half-close the write side so the helper sees EOF after one request.
-        // Not strictly needed (helper handles per-line) but cleaner.
-        drop(w);
+        // Flush so the helper sees the request before we start reading.
+        w.flush().await?;
         let mut lines = BufReader::new(r).lines();
         let line = lines
             .next_line()

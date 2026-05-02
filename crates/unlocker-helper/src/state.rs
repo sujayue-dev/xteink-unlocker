@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use tokio::fs;
 use tokio::sync::Mutex;
 
+#[cfg(unix)]
 const STATE_PATH: &str = "/var/db/com.sofriendly.crosspoint.unlocker.helper.state.json";
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -20,7 +21,19 @@ pub struct HelperState {
 static LOCK: Mutex<()> = Mutex::const_new(());
 
 pub fn path() -> PathBuf {
-    PathBuf::from(STATE_PATH)
+    #[cfg(unix)]
+    {
+        PathBuf::from(STATE_PATH)
+    }
+    #[cfg(windows)]
+    {
+        let base = std::env::var_os("ProgramData")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"));
+        base.join("CrossPoint")
+            .join("unlocker-helper")
+            .join("state.json")
+    }
 }
 
 pub async fn read() -> anyhow::Result<HelperState> {

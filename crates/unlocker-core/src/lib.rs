@@ -6,6 +6,7 @@ pub mod http;
 pub mod orchestrator;
 pub mod runtime;
 pub mod session;
+pub mod transport;
 pub mod types;
 
 pub use orchestrator::{Orchestrator, StateEvent};

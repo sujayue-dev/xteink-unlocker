@@ -131,6 +131,27 @@ First-time setup:
 
 When the orchestrator needs the helper, the app shells out to `osascript` with an admin password prompt and exec's `unlocker-helper` from inside the bundle as root. This replaced an earlier SMAppService/LaunchDaemon design that ran into provisioning-profile requirements on macOS 26. The helper exits when the app does (or via explicit teardown RPC); next session, a fresh prompt.
 
+On Windows the equivalent is a UAC prompt: the app calls `Start-Process -Verb RunAs` to launch `unlocker-helper.exe`, which carries a `requireAdministrator` manifest. The RPC channel is a named pipe at `\\.\pipe\com.sofriendly.crosspoint.unlocker.helper` instead of a Unix socket.
+
+## Windows
+
+Windows uses Mobile Hotspot (`NetworkOperatorTetheringManager`) for AP + NAT + DHCP in one step — no equivalent of macOS's "enable Internet Sharing in System Settings" handoff. The host always lands at `192.168.137.1` and clients are on `192.168.137.0/24`. Device discovery scans the system ARP table under that subnet rather than reading a `dhcpd_leases` file.
+
+Requirements:
+- Windows 10 1607 or newer (Windows 11 recommended).
+- A Wi-Fi adapter that supports Mobile Hotspot.
+- An active internet connection — Windows' tethering API requires a profile to share. (macOS bypasses this with a fake `lo0` upstream; Windows doesn't allow it.)
+
+### Build
+
+```powershell
+# bumps version (optional), builds helper + app, signs both installers
+.\scripts\build-windows.ps1 patch
+.\scripts\upload-to-cloudflare.ps1
+```
+
+The PowerShell scripts mirror the macOS pipeline: bump version, `cargo build --release -p unlocker-helper`, `npm run tauri -- build` (NSIS + MSI, picks up `app/src-tauri/tauri.windows.conf.json`), `signtool` for both installers using the Sectigo USB token, then push to R2 and merge a `windows-x86_64` entry into `latest.json` while preserving `darwin-aarch64`.
+
 ## Status
 
 Real systems work in. Privileged helper drives `feth` virtual upstream + Internet Sharing + pfctl + dhcpd lease watching via shell-outs to system tools. DNS / HTTP / HTTPS spoofing servers run inside the helper, bound to the bridge IP. Orchestrator state machine drives the wizard end-to-end. Working installs against stock X3 require the bootloader-validation override described in [`INTEGRATION.md` §2.4](./INTEGRATION.md#24-the-x3-efuse-blk-validity-gotcha-critical) — already shipped in CrossPoint.
