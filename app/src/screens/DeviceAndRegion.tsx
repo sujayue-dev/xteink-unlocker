@@ -25,10 +25,7 @@ export function DeviceAndRegion() {
       </div>
 
       <div className="space-y-4">
-        <Section
-          title="Model"
-          hint="The model number is printed on the back of your device."
-        >
+        <Section title="Model" hint="">
           <DeviceCard
             title="Xteink X3"
             selected={model === "x3"}
@@ -69,7 +66,7 @@ function Section({
   children,
 }: {
   title: string;
-  hint: string;
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -78,7 +75,7 @@ function Section({
         <h2 className="font-serif text-base font-medium text-stone-900">
           {title}
         </h2>
-        <p className="text-xs text-stone-500">{hint}</p>
+        {hint && <p className="text-xs text-stone-500">{hint}</p>}
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3">{children}</div>
     </div>
