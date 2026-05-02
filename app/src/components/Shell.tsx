@@ -1,7 +1,7 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { api } from "../api";
-import { SecondaryButton } from "./ui";
 import { CheckForUpdatesLink } from "./CheckForUpdatesLink";
+import { SettingsModal } from "./SettingsModal";
 import type { StateKind } from "../types";
 
 const STEPS: { id: string; label: string; states: StateKind[] }[] = [
@@ -44,6 +44,7 @@ export function Shell({
 }) {
   const idx = activeIndex(state);
   const isTerminal = state === "done" || state === "failed" || state === "idle";
+  const [settingsOpen, setSettingsOpen] = useState(false);
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col px-6 py-8">
       <header className="flex items-center justify-between">
@@ -56,12 +57,32 @@ export function Shell({
             Beta
           </span>
         </div>
-        {!isTerminal && (
-          <SecondaryButton onClick={() => api.cancel()}>
-            Cancel and clean up
-          </SecondaryButton>
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Settings and recovery"
+            title="Settings and recovery"
+            className="rounded-md p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-700"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="size-4"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+          </button>
+        </div>
       </header>
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
       <nav className="mt-6">
         <ol className="flex items-center gap-3 text-xs">
@@ -105,6 +126,17 @@ export function Shell({
 
       <footer className="mt-10 flex items-center justify-between text-xs text-stone-400">
         <span>CrossPoint Reader · MIT licensed</span>
+        <div className="flex-1 text-center">
+          {!isTerminal && (
+            <button
+              type="button"
+              onClick={() => api.cancel()}
+              className="text-xs text-stone-400 underline-offset-2 hover:text-stone-600 hover:underline"
+            >
+              Cancel and clean up
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-4">
           <CheckForUpdatesLink />
           <a

@@ -21,8 +21,14 @@ type Phase = "checking" | "needs_install" | "registering" | "ready" | "error";
 const checkStatus = () => invoke<HelperStatus>("helper_status");
 const installHelper = () => invoke<void>("install_helper");
 
+// Dev escape hatch: set VITE_SKIP_HELPER=1 (or pass it inline to npm run tauri dev)
+// to walk through the UI without installing the privileged helper. Only honored
+// when Vite is running in dev mode, so it can never leak into a release build.
+const SKIP_HELPER =
+  import.meta.env.DEV && import.meta.env.VITE_SKIP_HELPER === "1";
+
 export function HelperGate({ children }: { children: React.ReactNode }) {
-  const [phase, setPhase] = useState<Phase>("checking");
+  const [phase, setPhase] = useState<Phase>(SKIP_HELPER ? "ready" : "checking");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

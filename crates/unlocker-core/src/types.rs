@@ -54,6 +54,35 @@ pub enum Channel {
     Insider,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    Xteink,
+    Crossink,
+}
+
+impl Source {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Source::Xteink => "Xteink",
+            Source::Crossink => "CrossInk",
+        }
+    }
+
+    pub fn slug(&self) -> &'static str {
+        match self {
+            Source::Xteink => "xteink",
+            Source::Crossink => "crossink",
+        }
+    }
+}
+
+impl Default for Source {
+    fn default() -> Self {
+        Source::Xteink
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CrossPointRelease {
     pub id: String,
@@ -67,8 +96,42 @@ pub struct CrossPointRelease {
     pub firmware_url: String,
     pub firmware_sha256: Option<String>,
     pub size: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_supported_devices")]
     pub supported_devices: Vec<Model>,
+    /// Optional build variant (e.g. "tiny", "xlarge", "no_emoji"). Multiple
+    /// releases may share a version but differ by variant.
+    #[serde(default)]
+    pub variant: Option<String>,
+    #[serde(default)]
+    pub source: Source,
+}
+
+/// Tolerate publishers who emit a single comma-joined string instead of a
+/// proper JSON array (e.g. `["x4, x3"]` instead of `["x4", "x3"]`).
+fn deserialize_supported_devices<'de, D>(de: D) -> Result<Vec<Model>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let raw: Vec<String> = Vec::deserialize(de)?;
+    let mut out = Vec::with_capacity(raw.len());
+    for entry in raw {
+        for piece in entry.split(',') {
+            let piece = piece.trim().to_ascii_lowercase();
+            if piece.is_empty() {
+                continue;
+            }
+            let model = match piece.as_str() {
+                "x3" => Model::X3,
+                "x4" => Model::X4,
+                other => return Err(D::Error::custom(format!("unknown model {other}"))),
+            };
+            if !out.contains(&model) {
+                out.push(model);
+            }
+        }
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

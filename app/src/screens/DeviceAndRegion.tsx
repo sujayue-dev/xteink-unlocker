@@ -1,12 +1,6 @@
 import { useState } from "react";
 import { api } from "../api";
-import {
-  Card,
-  Eyebrow,
-  Heading,
-  PrimaryButton,
-  Subhead,
-} from "../components/ui";
+import { Eyebrow, Heading, PrimaryButton } from "../components/ui";
 import type { Locale, Model } from "../types";
 
 export function DeviceAndRegion() {
@@ -16,23 +10,25 @@ export function DeviceAndRegion() {
   const ready = model && locale;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <Eyebrow>Step 2 · Your device</Eyebrow>
-        <Heading>Which Xteink do you have?</Heading>
-        <Subhead>
-          Unlocker uses this to spoof the right update server and to label the
-          firmware download with the right model code.
-        </Subhead>
+    <div className="space-y-5">
+      <div className="flex items-end justify-between gap-4">
+        <div>
+          <Eyebrow>Step 2 · Your device</Eyebrow>
+          <Heading>Which Xteink do you have?</Heading>
+        </div>
+        <PrimaryButton
+          disabled={!ready}
+          onClick={() => model && locale && api.selectDevice(model, locale)}
+        >
+          Continue
+        </PrimaryButton>
       </div>
 
-      <Card>
-        <h2 className="font-serif text-lg font-medium text-stone-900">Model</h2>
-        <p className="mt-1 text-sm text-stone-500">
-          Not sure? Look at the back of your device — the model number is
-          printed there.
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
+      <div className="space-y-4">
+        <Section
+          title="Model"
+          hint="The model number is printed on the back of your device."
+        >
           <DeviceCard
             title="Xteink X3"
             selected={model === "x3"}
@@ -43,17 +39,12 @@ export function DeviceAndRegion() {
             selected={model === "x4"}
             onClick={() => setModel("x4")}
           />
-        </div>
-      </Card>
+        </Section>
 
-      <Card>
-        <h2 className="font-serif text-lg font-medium text-stone-900">
-          Region
-        </h2>
-        <p className="mt-1 text-sm text-stone-500">
-          Which language did your device come with from the factory?
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-3">
+        <Section
+          title="Region"
+          hint="Which language did your device come with from the factory?"
+        >
           <DeviceCard
             title="English"
             subtitle="Overseas firmware"
@@ -66,17 +57,30 @@ export function DeviceAndRegion() {
             selected={locale === "chinese"}
             onClick={() => setLocale("chinese")}
           />
-        </div>
-      </Card>
-
-      <div className="flex justify-end">
-        <PrimaryButton
-          disabled={!ready}
-          onClick={() => model && locale && api.selectDevice(model, locale)}
-        >
-          Continue
-        </PrimaryButton>
+        </Section>
       </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="font-serif text-base font-medium text-stone-900">
+          {title}
+        </h2>
+        <p className="text-xs text-stone-500">{hint}</p>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">{children}</div>
     </div>
   );
 }
@@ -96,17 +100,17 @@ function DeviceCard({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-xl border p-4 text-left transition ${
+      className={`rounded-lg border px-4 py-3 text-left shadow-sm transition ${
         selected
           ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500"
-          : "border-stone-200 bg-white hover:border-stone-300"
+          : "border-stone-300 bg-white hover:border-stone-400"
       }`}
     >
       <div className="font-serif text-base font-medium text-stone-900">
         {title}
       </div>
       {subtitle && (
-        <div className="mt-1 text-sm text-stone-500">{subtitle}</div>
+        <div className="mt-0.5 text-sm text-stone-500">{subtitle}</div>
       )}
     </button>
   );

@@ -1,10 +1,16 @@
-use crate::types::{Catalog, Channel, CrossPointRelease, Model};
+use crate::types::{Catalog, Channel, CrossPointRelease, Model, Source};
 use anyhow::{anyhow, Context, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
-pub const CATALOG_URL: &str = "https://crosspointreader.com/api/catalog";
+/// Live catalog sources. Each release in the merged catalog is tagged with its
+/// `Source` and its `id` is namespaced as `{slug}:{original_id}` so IDs from
+/// different publishers can't collide.
+pub const CATALOG_SOURCES: &[(Source, &str)] = &[
+    (Source::Xteink, "https://crosspointreader.com/api/catalog"),
+    (Source::Crossink, "https://crossink.uxj.io/catalog"),
+];
 
 pub fn cache_dir() -> Result<PathBuf> {
     let base = dirs::data_dir().ok_or_else(|| anyhow!("no data dir"))?;
@@ -35,20 +41,51 @@ fn write_cached_catalog(catalog: &Catalog) -> Result<()> {
     Ok(())
 }
 
-pub async fn fetch_catalog(client: &reqwest::Client) -> Result<Catalog> {
-    // The companion catalog spec is owned by the user; we treat it as live.
-    // If unreachable, fall back to the most recently cached live catalog.
-    match client.get(CATALOG_URL).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            let cat: Catalog = resp.json().await.context("decoding catalog")?;
-            let _ = write_cached_catalog(&cat);
-            Ok(cat)
-        }
-        Ok(resp) => read_cached_catalog()
-            .with_context(|| format!("catalog HTTP {}", resp.status())),
-        Err(e) => read_cached_catalog()
-            .with_context(|| format!("catalog fetch failed: {e}")),
+async fn fetch_one(client: &reqwest::Client, source: Source, url: &str) -> Result<Vec<CrossPointRelease>> {
+    let resp = client.get(url).send().await
+        .with_context(|| format!("fetching catalog {url}"))?;
+    if !resp.status().is_success() {
+        return Err(anyhow!("catalog {url} HTTP {}", resp.status()));
     }
+    let mut cat: Catalog = resp.json().await
+        .with_context(|| format!("decoding catalog {url}"))?;
+    let slug = source.slug();
+    for r in &mut cat.releases {
+        r.source = source;
+        if !r.id.starts_with(&format!("{slug}:")) {
+            r.id = format!("{slug}:{}", r.id);
+        }
+    }
+    Ok(cat.releases)
+}
+
+pub async fn fetch_catalog(client: &reqwest::Client) -> Result<Catalog> {
+    // Fan out to every configured source. Per-source failures are logged but
+    // don't sink the whole catalog — we still want one publisher's outage to
+    // leave the others usable.
+    let futures = CATALOG_SOURCES
+        .iter()
+        .map(|(src, url)| async move { (*src, fetch_one(client, *src, url).await) });
+    let results = futures::future::join_all(futures).await;
+
+    let mut releases = Vec::new();
+    let mut errors = Vec::new();
+    for (src, res) in results {
+        match res {
+            Ok(mut rs) => releases.append(&mut rs),
+            Err(e) => errors.push(format!("{}: {e}", src.label())),
+        }
+    }
+
+    if releases.is_empty() {
+        // All sources failed — fall back to last successful merged cache.
+        return read_cached_catalog()
+            .with_context(|| format!("all catalogs failed ({})", errors.join("; ")));
+    }
+
+    let cat = Catalog { schema_version: 1, releases };
+    let _ = write_cached_catalog(&cat);
+    Ok(cat)
 }
 
 /// Fallback / dev catalog. Useful before the real endpoint exists.
@@ -67,6 +104,8 @@ pub fn stub_catalog() -> Catalog {
                 firmware_sha256: None,
                 size: 6_291_456,
                 supported_devices: vec![Model::X3, Model::X4],
+                variant: None,
+                source: Source::Xteink,
             },
             CrossPointRelease {
                 id: "beta-sd-storage".into(),
@@ -79,6 +118,8 @@ pub fn stub_catalog() -> Catalog {
                 firmware_sha256: None,
                 size: 6_320_000,
                 supported_devices: vec![Model::X3, Model::X4],
+                variant: None,
+                source: Source::Xteink,
             },
             CrossPointRelease {
                 id: "beta-calibre-sync".into(),
@@ -91,6 +132,8 @@ pub fn stub_catalog() -> Catalog {
                 firmware_sha256: None,
                 size: 6_315_000,
                 supported_devices: vec![Model::X3, Model::X4],
+                variant: None,
+                source: Source::Xteink,
             },
             CrossPointRelease {
                 id: "insider-latest".into(),
@@ -103,6 +146,8 @@ pub fn stub_catalog() -> Catalog {
                 firmware_sha256: None,
                 size: 6_350_000,
                 supported_devices: vec![Model::X3, Model::X4],
+                variant: None,
+                source: Source::Xteink,
             },
         ],
     }

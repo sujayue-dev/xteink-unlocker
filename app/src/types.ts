@@ -1,6 +1,12 @@
 export type Model = "x3" | "x4";
 export type Locale = "english" | "chinese";
 export type Channel = "stable" | "beta" | "insider";
+export type Source = "xteink" | "crossink";
+
+export const SOURCE_LABELS: Record<Source, string> = {
+  xteink: "CrossPoint",
+  crossink: "CrossInk",
+};
 
 export type StateKind =
   | "idle"
@@ -43,6 +49,8 @@ export interface CrossPointRelease {
   firmware_sha256: string | null;
   size: number;
   supported_devices: Model[];
+  variant?: string | null;
+  source: Source;
 }
 
 export interface Catalog {
