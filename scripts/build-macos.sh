@@ -118,8 +118,33 @@ xcrun notarytool submit "${APP_ZIP}" \
 xcrun stapler staple "${APP_PATH}"
 rm -f "${APP_ZIP}"
 
-# ── Notarize the DMG ──
+# ── Rebuild the DMG with the helper-injected .app ──
+# Tauri's `tauri build` produces the .dmg in the same step as the .app, *before*
+# we inject the helper. The DMG it writes therefore wraps a helper-less .app.
+# Rebuild the DMG from the now-correct .app on disk before signing/notarizing.
 if [[ -n "${DMG_PATH}" && -f "${DMG_PATH}" ]]; then
+    echo "==> Rebuilding DMG with helper-injected .app"
+    DMG_STAGING="$(mktemp -d)"
+    cp -R "${APP_PATH}" "${DMG_STAGING}/"
+    ln -s /Applications "${DMG_STAGING}/Applications"
+    rm -f "${DMG_PATH}"
+    hdiutil create \
+        -volname "$(basename "${APP_PATH}" .app)" \
+        -srcfolder "${DMG_STAGING}" \
+        -ov \
+        -format UDZO \
+        "${DMG_PATH}"
+    rm -rf "${DMG_STAGING}"
+
+    echo "==> Verifying DMG contains helper"
+    DMG_MOUNT=$(hdiutil attach "${DMG_PATH}" -nobrowse -readonly | tail -1 | awk '{print $NF}')
+    if [[ ! -x "${DMG_MOUNT}/$(basename "${APP_PATH}")/Contents/MacOS/unlocker-helper" ]]; then
+        hdiutil detach "${DMG_MOUNT}" -force >/dev/null
+        echo "ERROR: rebuilt DMG is missing the helper" >&2
+        exit 1
+    fi
+    hdiutil detach "${DMG_MOUNT}" -force >/dev/null
+
     echo "==> Signing + notarizing DMG"
     codesign --force --sign "${APPLE_CERTIFICATE_IDENTITY}" "${DMG_PATH}"
     xcrun notarytool submit "${DMG_PATH}" \
