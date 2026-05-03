@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import { Card, Eyebrow, Heading, StatusDot, Subhead } from "../components/ui";
+import { saveResumeInstall } from "../resumeInstall";
 import { useSessionLog } from "../store";
-import type { StateKind } from "../types";
+import type { Locale, Model, StateKind } from "../types";
 
 type Phase =
   | "preparing"
@@ -26,11 +28,25 @@ export function Connect({ state }: { state: StateKind }) {
   const logs = useSessionLog();
 
   const [info, setInfo] = useState<{
+    model: Model | null;
+    locale: Locale | null;
+    release_id: string | null;
+    firmware_path: string | null;
     ssid: string | null;
     psk: string | null;
     bridge_ip: string | null;
     device_ip: string | null;
-  }>({ ssid: null, psk: null, bridge_ip: null, device_ip: null });
+  }>({
+    model: null,
+    locale: null,
+    release_id: null,
+    firmware_path: null,
+    ssid: null,
+    psk: null,
+    bridge_ip: null,
+    device_ip: null,
+  });
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -38,6 +54,10 @@ export function Connect({ state }: { state: StateKind }) {
       const s = await api.getSession();
       if (!cancelled) {
         setInfo({
+          model: s.model,
+          locale: s.locale,
+          release_id: s.release_id,
+          firmware_path: s.firmware_path,
           ssid: s.ssid,
           psk: s.psk,
           bridge_ip: s.bridge_ip,
@@ -52,6 +72,27 @@ export function Connect({ state }: { state: StateKind }) {
       clearInterval(id);
     };
   }, []);
+
+  async function restartAfterSharing() {
+    if (!info.model || !info.locale || !info.release_id) return;
+    setRestarting(true);
+    if (info.release_id === "local" && info.firmware_path) {
+      saveResumeInstall({
+        kind: "local",
+        model: info.model,
+        locale: info.locale,
+        path: info.firmware_path,
+      });
+    } else {
+      saveResumeInstall({
+        kind: "catalog",
+        model: info.model,
+        locale: info.locale,
+        releaseId: info.release_id,
+      });
+    }
+    await relaunch();
+  }
 
   if (phase === "preparing" || phase === "hotspot_starting") {
     return (
@@ -85,8 +126,8 @@ export function Connect({ state }: { state: StateKind }) {
           <Heading>Turn on Internet Sharing</Heading>
           <Subhead>
             Unlocker needs your Mac to act as a Wi-Fi hotspot for your device.
-            Follow the steps below — Unlocker will detect it automatically and
-            continue.
+            Follow the steps below, connect your Xteink, then restart Unlocker
+            so it can arm the update server on the active sharing network.
           </Subhead>
         </div>
 
@@ -118,11 +159,34 @@ export function Connect({ state }: { state: StateKind }) {
         </ol>
 
         <Card>
-          <div className="flex items-center gap-3">
-            <StatusDot variant="active" />
-            <p className="text-sm text-stone-500">
-              Waiting for Internet Sharing to start…
-            </p>
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <StatusDot variant="active" />
+              <div>
+                <p className="text-sm font-medium text-stone-900">
+                  After Internet Sharing is on
+                </p>
+                <p className="mt-1 text-sm text-stone-600">
+                  Connect your Xteink to the hotspot you created, then click
+                  below. Unlocker will restart and resume this install
+                  automatically.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={restartAfterSharing}
+              disabled={
+                restarting ||
+                !info.model ||
+                !info.locale ||
+                !info.release_id ||
+                (info.release_id === "local" && !info.firmware_path)
+              }
+              className="rounded-md border border-brand-500 bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-600 disabled:cursor-not-allowed disabled:border-stone-300 disabled:bg-stone-200 disabled:text-stone-500"
+            >
+              {restarting ? "Restarting…" : "I've started Internet Sharing"}
+            </button>
           </div>
         </Card>
         <LogPanel entries={logs} />

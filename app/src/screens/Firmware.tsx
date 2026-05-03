@@ -51,7 +51,7 @@ function releaseLabel(r: CrossPointRelease): string {
   return r.variant ? `${r.name} · ${r.variant}` : r.name;
 }
 
-const SOURCE_ORDER: Source[] = ["xteink", "crossink"];
+const SOURCE_ORDER: Source[] = ["xteink", "crosspoint_ko", "crossink"];
 
 export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -76,7 +76,7 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
     const eligible = catalog.releases.filter(supportsModel);
     const present = new Set<Source>();
     for (const r of eligible) present.add(r.source ?? "xteink");
-    // Stable order: CrossPoint (xteink) default, CrossInk after.
+    // Stable order: CrossPoint default, then related firmware variants.
     const sources = SOURCE_ORDER.filter((s) => present.has(s));
     const map = new Map<Source, ChannelGroups>();
     for (const src of sources) {

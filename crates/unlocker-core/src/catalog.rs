@@ -9,6 +9,10 @@ use tokio::io::AsyncWriteExt;
 /// different publishers can't collide.
 pub const CATALOG_SOURCES: &[(Source, &str)] = &[
     (Source::Xteink, "https://crosspointreader.com/api/catalog"),
+    (
+        Source::CrosspointKo,
+        "https://crosspoint.idlerecord.com/catalog",
+    ),
     (Source::Crossink, "https://crossink.uxj.io/catalog"),
 ];
 

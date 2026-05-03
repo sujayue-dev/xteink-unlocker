@@ -14,7 +14,10 @@ const NAT_PLIST_BACKUP: &str = "/var/db/com.sofriendly.crosspoint.unlocker.nat.p
 const PF_RULES_PATH: &str = "/var/db/com.sofriendly.crosspoint.unlocker.pf.conf";
 
 async fn sh(prog: &str, args: &[&str]) -> Result<String> {
-    let out = Command::new(prog).args(args).output().await
+    let out = Command::new(prog)
+        .args(args)
+        .output()
+        .await
         .with_context(|| format!("spawn {prog} {args:?}"))?;
     if !out.status.success() {
         bail!(
@@ -36,7 +39,14 @@ const LOOPBACK_NETMASK: &str = "0xff000000";
 async fn restore_loopback() {
     let _ = sh(
         "ifconfig",
-        &["lo0", "inet", LOOPBACK_IP, "netmask", LOOPBACK_NETMASK, "up"],
+        &[
+            "lo0",
+            "inet",
+            LOOPBACK_IP,
+            "netmask",
+            LOOPBACK_NETMASK,
+            "up",
+        ],
     )
     .await;
     let _ = sh("ifconfig", &["lo0", "-alias", ADHOC_IP]).await;
@@ -46,26 +56,72 @@ async fn restore_loopback() {
 /// "active" upstream even though there's no real internet connection.
 async fn create_adhoc_upstream() -> Result<()> {
     // Remove stale service if it exists from a prior run.
-    let _ = sh("networksetup", &["-removenetworkservice", ADHOC_SERVICE_NAME]).await;
+    let _ = sh(
+        "networksetup",
+        &["-removenetworkservice", ADHOC_SERVICE_NAME],
+    )
+    .await;
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Create may fail if it already exists (race or incomplete cleanup).
-    match sh("networksetup", &["-createnetworkservice", ADHOC_SERVICE_NAME, "lo0"]).await {
+    match sh(
+        "networksetup",
+        &["-createnetworkservice", ADHOC_SERVICE_NAME, "lo0"],
+    )
+    .await
+    {
         Ok(_) => {}
         Err(e) => {
             tracing::warn!(?e, "createnetworkservice failed, may already exist");
         }
     }
     // Set the IP regardless — works even if the service already existed.
-    sh("networksetup", &["-setmanual", ADHOC_SERVICE_NAME, ADHOC_IP, "255.255.255.255"]).await?;
+    sh(
+        "networksetup",
+        &[
+            "-setmanual",
+            ADHOC_SERVICE_NAME,
+            ADHOC_IP,
+            "255.255.255.255",
+        ],
+    )
+    .await?;
     tracing::info!("adhoc upstream service ready on lo0");
     Ok(())
 }
 
 async fn remove_adhoc_upstream() {
-    let _ = sh("networksetup", &["-removenetworkservice", ADHOC_SERVICE_NAME]).await;
+    let _ = sh(
+        "networksetup",
+        &["-removenetworkservice", ADHOC_SERVICE_NAME],
+    )
+    .await;
     restore_loopback().await;
     tracing::info!("removed adhoc upstream service");
+}
+
+async fn wifi_device() -> Result<String> {
+    let out = sh("networksetup", &["-listallhardwareports"]).await?;
+    let mut in_wifi_block = false;
+
+    for line in out.lines() {
+        let line = line.trim();
+        if let Some(port) = line.strip_prefix("Hardware Port: ") {
+            in_wifi_block = port == "Wi-Fi" || port == "AirPort";
+            continue;
+        }
+
+        if in_wifi_block {
+            if let Some(device) = line.strip_prefix("Device: ") {
+                let device = device.trim();
+                if !device.is_empty() {
+                    return Ok(device.to_string());
+                }
+            }
+        }
+    }
+
+    Err(anyhow!("could not find Wi-Fi hardware device"))
 }
 
 pub async fn is_enable(ssid: &str, psk: &str) -> Result<()> {
@@ -84,18 +140,19 @@ pub async fn is_enable(ssid: &str, psk: &str) -> Result<()> {
     create_adhoc_upstream().await?;
 
     // Disconnect Wi-Fi from the current network. Internet Sharing needs to
-    // reconfigure en0 from client mode to AP mode — it can't do that while
-    // en0 is associated with a network. We leave the radio on.
-    tracing::info!("disconnecting Wi-Fi from current network");
-    let _ = sh("networksetup", &["-setairportpower", "en0", "off"]).await;
+    // reconfigure Wi-Fi from client mode to AP mode — it can't do that while
+    // associated with a network. We leave the radio on.
+    let wifi = wifi_device().await?;
+    tracing::info!(%wifi, "disconnecting Wi-Fi from current network");
+    let _ = sh("networksetup", &["-setairportpower", &wifi, "off"]).await;
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    let _ = sh("networksetup", &["-setairportpower", "en0", "on"]).await;
+    let _ = sh("networksetup", &["-setairportpower", &wifi, "on"]).await;
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Write NAT plist so Internet Sharing is pre-configured when the user
     // enables it in System Settings.
-    tracing::info!(%ssid, "writing NAT plist with lo0 upstream");
-    write_nat_plist("lo0", ssid, psk).await?;
+    tracing::info!(%ssid, %wifi, "writing NAT plist with lo0 upstream");
+    write_nat_plist("lo0", &wifi, ssid, psk).await?;
     state::mutate(|s| s.internet_sharing_active = true).await?;
 
     tracing::info!(%ssid, "Internet Sharing configured — user must enable in System Settings");
@@ -120,7 +177,7 @@ pub async fn is_disable() -> Result<()> {
     Ok(())
 }
 
-async fn write_nat_plist(upstream: &str, ssid: &str, psk: &str) -> Result<()> {
+async fn write_nat_plist(upstream: &str, wifi_device: &str, ssid: &str, psk: &str) -> Result<()> {
     use plist::Value;
     let mut airport = plist::Dictionary::new();
     airport.insert("40BitEncrypt".into(), Value::Integer(0i64.into()));
@@ -136,7 +193,7 @@ async fn write_nat_plist(upstream: &str, ssid: &str, psk: &str) -> Result<()> {
     nat.insert("Enabled".into(), Value::Integer(1i64.into()));
     nat.insert(
         "SharingDevices".into(),
-        Value::Array(vec![Value::String("en0".into())]),
+        Value::Array(vec![Value::String(wifi_device.to_string())]),
     );
     nat.insert(
         "PrimaryInterface".into(),
@@ -167,7 +224,9 @@ async fn write_nat_plist(upstream: &str, ssid: &str, psk: &str) -> Result<()> {
 // ── pfctl (DNS port redirect) ────────────────────────────────────────────────
 
 pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
-    let bridge = bridge_ip().await.unwrap_or_else(|_| "192.168.2.1".to_string());
+    let bridge = bridge_ip()
+        .await
+        .unwrap_or_else(|_| "192.168.2.1".to_string());
 
     // Use a single pf config that includes our rdr rules inline (not via anchors).
     // Anchors require being referenced in the main /etc/pf.conf which we don't
@@ -188,7 +247,11 @@ pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
 
     // Load into the Internet Sharing anchor which is already referenced
     // in the main ruleset — this piggybacks on Apple's existing anchor point.
-    sh("pfctl", &["-a", "com.apple.internet-sharing", "-f", PF_RULES_PATH]).await?;
+    sh(
+        "pfctl",
+        &["-a", "com.apple.internet-sharing", "-f", PF_RULES_PATH],
+    )
+    .await?;
 
     // Enable pf if not already enabled.
     let _ = sh("pfctl", &["-E"]).await;

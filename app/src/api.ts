@@ -5,6 +5,7 @@ export interface SessionInfo {
   model: Model | null;
   locale: Locale | null;
   release_id: string | null;
+  firmware_path: string | null;
   bridge_ip: string | null;
   ssid: string | null;
   psk: string | null;

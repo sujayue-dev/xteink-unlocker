@@ -55,9 +55,10 @@ pub enum Channel {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Source {
     Xteink,
+    CrosspointKo,
     Crossink,
 }
 
@@ -65,6 +66,7 @@ impl Source {
     pub fn label(&self) -> &'static str {
         match self {
             Source::Xteink => "Xteink",
+            Source::CrosspointKo => "CrossPoint KO",
             Source::Crossink => "CrossInk",
         }
     }
@@ -72,6 +74,7 @@ impl Source {
     pub fn slug(&self) -> &'static str {
         match self {
             Source::Xteink => "xteink",
+            Source::CrosspointKo => "crosspoint_ko",
             Source::Crossink => "crossink",
         }
     }

@@ -1,10 +1,11 @@
 export type Model = "x3" | "x4";
 export type Locale = "english" | "chinese";
 export type Channel = "stable" | "beta" | "insider";
-export type Source = "xteink" | "crossink";
+export type Source = "xteink" | "crosspoint_ko" | "crossink";
 
 export const SOURCE_LABELS: Record<Source, string> = {
   xteink: "CrossPoint",
+  crosspoint_ko: "CrossPoint KO",
   crossink: "CrossInk",
 };
 
