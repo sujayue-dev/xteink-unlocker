@@ -72,8 +72,8 @@ export default {
             (platformKey && extractVersion(platformKey)) || latest.version;
 
           const fileMap: Record<string, string> = {
-            dmg: `v${version}/XteinkUnlocker_${version}_aarch64.dmg`,
-            "tar.gz": `v${version}/XteinkUnlocker_${version}_darwin-aarch64.app.tar.gz`,
+            dmg: `v${version}/XteinkUnlocker_${version}_universal.dmg`,
+            "tar.gz": `v${version}/XteinkUnlocker_${version}_darwin-universal.app.tar.gz`,
           };
           const targetKey = fileMap[ext];
           if (targetKey) {
