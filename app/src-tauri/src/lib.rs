@@ -486,10 +486,8 @@ fn render_changelog(release: &CrossPointRelease) -> String {
     format!(
         "Installing CrossPoint Reader {ver}\n\n\
          This update replaces the stock Xteink firmware with CrossPoint, an open-source firmware with more features and full local control.\n\n\
-         Highlights:\n{notes}\n\n\
          Learn more: https://crosspointreader.com",
         ver = release.version,
-        notes = release.notes,
     )
 }
 
