@@ -33,12 +33,14 @@ fi
 APPLE_CERTIFICATE_IDENTITY="${APPLE_CERTIFICATE_IDENTITY:-Developer ID Application: SoFriendly LLC (${APPLE_TEAM_ID})}"
 export APPLE_CERTIFICATE_IDENTITY
 export APPLE_SIGNING_IDENTITY="${APPLE_CERTIFICATE_IDENTITY}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
 
 if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
     echo "warning: TAURI_SIGNING_PRIVATE_KEY not set — auto-update bundle won't be signed"
 fi
 
 echo "==> Identity: ${APPLE_CERTIFICATE_IDENTITY}"
+echo "==> macOS deployment target: ${MACOSX_DEPLOYMENT_TARGET}"
 
 # ── Optional: bump version first ──
 if [[ -n "${1:-}" ]]; then

@@ -162,12 +162,12 @@ export function Connect({ state }: { state: StateKind }) {
 
         <Step
           n={2}
-          title="Tap Check for Updates"
+          title="Open System Update"
           done={false}
           active={deviceConnected}
         >
-          Settings → System → Check for Updates. Unlocker will detect the
-          request and continue automatically.
+          Sync/APP → System Update. Your Xteink will check for updates, and
+          Unlocker will detect the request and continue automatically.
         </Step>
       </ol>
 

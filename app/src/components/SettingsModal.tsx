@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import { useSettingsStore } from "../stores/settingsStore";
 import { PrimaryButton } from "./ui";
 
 function ActionButton({
@@ -28,6 +29,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [repairMessage, setRepairMessage] = useState<string | null>(null);
   const [removingHelper, setRemovingHelper] = useState(false);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
+  const showCustomFirmwareOption = useSettingsStore(
+    (state) => state.showCustomFirmwareOption,
+  );
+  const setShowCustomFirmwareOption = useSettingsStore(
+    (state) => state.setShowCustomFirmwareOption,
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -105,6 +112,28 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           {repairMessage && (
             <p className="text-sm text-stone-600">{repairMessage}</p>
           )}
+        </section>
+
+        <section className="space-y-2 border-t border-stone-200 pt-5">
+          <h3 className="font-serif text-sm font-semibold text-stone-900">
+            Advanced firmware options
+          </h3>
+          <label className="flex items-start gap-3 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              checked={showCustomFirmwareOption}
+              onChange={(e) => setShowCustomFirmwareOption(e.target.checked)}
+              className="mt-0.5 size-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span>
+              <span className="block font-medium text-stone-900">
+                Show Custom Firmware Option
+              </span>
+              <span className="block text-stone-600">
+                Enables selecting a local .bin file during firmware selection.
+              </span>
+            </span>
+          </label>
         </section>
 
         <section className="space-y-2 border-t border-stone-200 pt-5">

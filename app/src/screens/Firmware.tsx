@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { api } from "../api";
+import { useSettingsStore } from "../stores/settingsStore";
 import {
   Callout,
   Eyebrow,
@@ -57,6 +59,9 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
+  const showCustomFirmwareOption = useSettingsStore(
+    (state) => state.showCustomFirmwareOption,
+  );
 
   useEffect(() => {
     api.fetchCatalog().then(setCatalog).catch((e) => setError(String(e)));
@@ -105,6 +110,24 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
     setPendingId(release.id);
     try {
       await api.selectFirmware(model, locale, release.id);
+    } catch (e) {
+      setPendingId(null);
+      setError(String(e));
+    }
+  }
+
+  async function installLocal() {
+    setPendingId("local");
+    try {
+      const picked = await openFileDialog({
+        multiple: false,
+        filters: [{ name: "Firmware image", extensions: ["bin"] }],
+      });
+      if (typeof picked !== "string") {
+        setPendingId(null);
+        return;
+      }
+      await api.selectLocalFirmware(model, locale, picked);
     } catch (e) {
       setPendingId(null);
       setError(String(e));
@@ -188,6 +211,33 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
           );
         })}
       </div>
+
+      {showCustomFirmwareOption && (
+        <div className="rounded-xl border border-stone-300 bg-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="font-serif text-sm font-medium text-stone-900">
+                Local firmware
+              </div>
+              <div className="mt-1 text-xs text-stone-500">
+                Use a firmware .bin from this computer for recovery testing.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={installLocal}
+              disabled={!!pendingId && pendingId !== "local"}
+              className={`shrink-0 rounded-md border px-3 py-1 text-xs font-semibold shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                pendingId === "local"
+                  ? "border-brand-500 bg-brand-500 text-white"
+                  : "border-stone-300 bg-stone-50 text-stone-700"
+              }`}
+            >
+              {pendingId === "local" ? "Preparing…" : "Choose file"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

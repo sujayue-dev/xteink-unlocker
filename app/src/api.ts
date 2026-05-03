@@ -23,6 +23,8 @@ export const api = {
     invoke<void>("select_firmware", {
       selection: { model, locale, release_id: releaseId },
     }),
+  selectLocalFirmware: (model: Model, locale: Locale, path: string) =>
+    invoke<void>("select_local_firmware", { model, locale, path }),
   checkHelper: () => invoke<boolean>("check_helper"),
   cleanupAfterInstall: () => invoke<void>("cleanup_after_install"),
   uninstallHelper: () => invoke<void>("uninstall_helper"),

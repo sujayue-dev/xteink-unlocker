@@ -53,7 +53,11 @@ async fn fetch_catalog(state: State<'_, AppState>) -> Result<Catalog, String> {
         Err(e) => {
             state
                 .log
-                .push("warn", format!("catalog fetch failed, using stub: {e}"), None)
+                .push(
+                    "warn",
+                    format!("catalog fetch failed, using stub: {e}"),
+                    None,
+                )
                 .await;
             Ok(catalog::stub_catalog())
         }
@@ -77,7 +81,12 @@ async fn helper_status(state: State<'_, AppState>) -> Result<HelperStatus, Strin
     let socket_reachable = state.helper.ping().await.is_ok();
     Ok(HelperStatus {
         installed: socket_reachable,
-        status_label: if socket_reachable { "running" } else { "not_running" }.into(),
+        status_label: if socket_reachable {
+            "running"
+        } else {
+            "not_running"
+        }
+        .into(),
         socket_reachable,
     })
 }
@@ -351,10 +360,7 @@ async fn select_device(
 }
 
 #[tauri::command]
-async fn select_firmware(
-    state: State<'_, AppState>,
-    selection: Selection,
-) -> Result<(), String> {
+async fn select_firmware(state: State<'_, AppState>, selection: Selection) -> Result<(), String> {
     state.orch.set_selection(selection.clone()).await;
     state
         .orch
@@ -368,13 +374,67 @@ async fn select_firmware(
     let helper = state.helper.clone();
 
     tokio::spawn(async move {
-        if let Err(e) = run_install(orch.clone(), log, http, runtime, helper, selection).await
-        {
+        if let Err(e) = run_install(orch.clone(), log, http, runtime, helper, selection).await {
             orch.fail(format!("{e:#}")).await;
         }
     });
 
     Ok(())
+}
+
+#[tauri::command]
+async fn select_local_firmware(
+    state: State<'_, AppState>,
+    model: Model,
+    locale: Locale,
+    path: String,
+) -> Result<(), String> {
+    let path = std::path::PathBuf::from(path);
+    if !path.is_file() {
+        return Err(format!("firmware file not found: {}", path.display()));
+    }
+    let is_bin = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("bin"))
+        .unwrap_or(false);
+    if !is_bin {
+        return Err("local firmware must be a .bin file".into());
+    }
+
+    state
+        .orch
+        .set_selection(Selection {
+            model,
+            locale,
+            release_id: "local".into(),
+        })
+        .await;
+    state
+        .orch
+        .transition(OrchState::DownloadingFirmware, None)
+        .await;
+
+    let orch = state.orch.clone();
+    let log = state.log.clone();
+    let runtime = state.runtime.clone();
+    let helper = state.helper.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = run_local_install(orch.clone(), log, runtime, helper, path).await {
+            orch.fail(format!("{e:#}")).await;
+        }
+    });
+
+    Ok(())
+}
+
+struct PreparedFirmware {
+    path: std::path::PathBuf,
+    sha: String,
+    size: u64,
+    version: String,
+    change_log: String,
 }
 
 async fn run_install(
@@ -409,8 +469,61 @@ async fn run_install(
     } else {
         catalog::download_firmware(&http, &release, |_, _| {}).await?
     };
-    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(release.size);
-    orch.set_firmware(path.to_string_lossy().into(), sha.clone()).await;
+    let size = std::fs::metadata(&path)
+        .map(|m| m.len())
+        .unwrap_or(release.size);
+    let firmware = PreparedFirmware {
+        path,
+        sha,
+        size,
+        version: release.version.clone(),
+        change_log: render_changelog(&release),
+    };
+
+    run_prepared_install(orch, log, runtime, helper, firmware).await
+}
+
+async fn run_local_install(
+    orch: Arc<Orchestrator>,
+    log: Arc<SessionLog>,
+    runtime: Arc<Runtime>,
+    helper: Arc<Helper>,
+    path: std::path::PathBuf,
+) -> anyhow::Result<()> {
+    let sha = catalog::hash_file(&path)?;
+    let size = std::fs::metadata(&path)?.len();
+    let display_name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("local firmware")
+        .to_string();
+    log.push(
+        "info",
+        format!("using local firmware: {display_name} ({size} bytes)"),
+        None,
+    )
+    .await;
+
+    let firmware = PreparedFirmware {
+        path,
+        sha,
+        size,
+        version: "local".into(),
+        change_log: format!("Installing local firmware file: {display_name}"),
+    };
+
+    run_prepared_install(orch, log, runtime, helper, firmware).await
+}
+
+async fn run_prepared_install(
+    orch: Arc<Orchestrator>,
+    log: Arc<SessionLog>,
+    runtime: Arc<Runtime>,
+    helper: Arc<Helper>,
+    firmware: PreparedFirmware,
+) -> anyhow::Result<()> {
+    orch.set_firmware(firmware.path.to_string_lossy().into(), firmware.sha.clone())
+        .await;
 
     // ── Hotspot ──
     orch.transition(OrchState::SettingUpHotspot, None).await;
@@ -418,22 +531,40 @@ async fn run_install(
     let psk = format!("xtu-{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
     log.push("info", "configuring Internet Sharing", None).await;
     if let Err(e) = runtime.prepare_hotspot(&helper, &ssid, &psk).await {
-        log.push("error", format!("Internet Sharing setup failed: {e:#}"), None).await;
+        log.push(
+            "error",
+            format!("Internet Sharing setup failed: {e:#}"),
+            None,
+        )
+        .await;
         return Err(e.into());
     }
-    log.push("info", "ready — enable Internet Sharing in System Settings", None).await;
+    log.push(
+        "info",
+        "ready — enable Internet Sharing in System Settings",
+        None,
+    )
+    .await;
 
     // Wait for the user to enable Internet Sharing in System Settings.
-    orch.transition(OrchState::WaitingForInternetSharing, None).await;
+    orch.transition(OrchState::WaitingForInternetSharing, None)
+        .await;
     let info = match runtime.await_hotspot(&helper, &ssid, &psk).await {
         Ok(info) => info,
         Err(e) => {
-            log.push("error", format!("await_hotspot failed: {e:#}"), None).await;
+            log.push("error", format!("await_hotspot failed: {e:#}"), None)
+                .await;
             return Err(e);
         }
     };
-    log.push("info", format!("hotspot up — bridge at {}", info.bridge_ip), None).await;
-    orch.set_hotspot(info.ssid, info.psk, info.bridge_ip.to_string()).await;
+    log.push(
+        "info",
+        format!("hotspot up — bridge at {}", info.bridge_ip),
+        None,
+    )
+    .await;
+    orch.set_hotspot(info.ssid, info.psk, info.bridge_ip.to_string())
+        .await;
 
     // ── Arm DNS + HTTP + HTTPS immediately so they're ready before any
     //    device connects. The device may check for updates the moment it
@@ -443,17 +574,19 @@ async fn run_install(
         bridge_ip,
         model: orch.data().await.model.unwrap(),
         locale: orch.data().await.locale.unwrap(),
-        firmware_path: path,
-        firmware_size: size,
-        firmware_sha256: sha,
-        crosspoint_version: release.version.clone(),
-        change_log: render_changelog(&release),
+        firmware_path: firmware.path,
+        firmware_size: firmware.size,
+        firmware_sha256: firmware.sha,
+        crosspoint_version: firmware.version,
+        change_log: firmware.change_log,
     };
     runtime.arm(&helper, arm_cfg).await?;
-    log.push("info", "DNS + HTTP + HTTPS servers armed", None).await;
+    log.push("info", "DNS + HTTP + HTTPS servers armed", None)
+        .await;
 
     orch.transition(OrchState::AwaitingClient, None).await;
-    log.push("info", "waiting for device to join hotspot", None).await;
+    log.push("info", "waiting for device to join hotspot", None)
+        .await;
 
     // ── Wait for device to join ──
     let (mac, ip) = await_device_lease(&helper, bridge_ip, Duration::from_secs(300)).await?;
@@ -463,16 +596,22 @@ async fn run_install(
 
     // Servers are already armed. We block here until the helper reports
     // the manifest request.
-    orch.transition(OrchState::AwaitingDeviceRequest, None).await;
-    log.push("info", "armed; waiting for device check-update", None).await;
+    orch.transition(OrchState::AwaitingDeviceRequest, None)
+        .await;
+    log.push("info", "armed; waiting for device check-update", None)
+        .await;
     helper.wait_manifest().await?;
     log.push("info", "device fetched manifest", None).await;
     orch.transition(OrchState::Serving, Some("Manifest served".into()))
         .await;
 
     helper.wait_firmware().await?;
-    log.push("info", "device started firmware download; handoff to on-device updater", None)
-        .await;
+    log.push(
+        "info",
+        "device started firmware download; handoff to on-device updater",
+        None,
+    )
+    .await;
     orch.transition(
         OrchState::Done,
         Some("Check your device, then clean up the network on this Mac.".into()),
@@ -506,14 +645,14 @@ async fn confirm_running(state: State<'_, AppState>) -> Result<(), String> {
 async fn cleanup_after_install(state: State<'_, AppState>) -> Result<(), String> {
     state
         .log
-        .push("info", "cleaning up Internet Sharing and local network changes", None)
+        .push(
+            "info",
+            "cleaning up Internet Sharing and local network changes",
+            None,
+        )
         .await;
     let _ = state.runtime.teardown(&state.helper).await;
-    state
-        .helper
-        .full_cleanup()
-        .await
-        .map_err(|e| e.to_string())
+    state.helper.full_cleanup().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -529,11 +668,7 @@ async fn repair_system(state: State<'_, AppState>) -> Result<(), String> {
         .log
         .push("warn", "running network repair and loopback restore", None)
         .await;
-    state
-        .helper
-        .full_cleanup()
-        .await
-        .map_err(|e| e.to_string())
+    state.helper.full_cleanup().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -607,6 +742,7 @@ pub fn run() {
             accept_consent,
             select_device,
             select_firmware,
+            select_local_firmware,
             confirm_running,
             cleanup_after_install,
             cancel,

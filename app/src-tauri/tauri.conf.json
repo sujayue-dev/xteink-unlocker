@@ -49,7 +49,7 @@
     "longDescription": "Xteink Unlocker installs CrossPoint Reader by intercepting your device's own OTA update mechanism. The only path for devices where USB flashing is locked.",
     "macOS": {
       "entitlements": "entitlements.plist",
-      "minimumSystemVersion": "13.0",
+      "minimumSystemVersion": "12.0",
       "exceptionDomain": null,
       "frameworks": [],
       "signingIdentity": null,

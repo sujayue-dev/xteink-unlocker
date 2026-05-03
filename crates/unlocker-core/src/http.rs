@@ -20,6 +20,7 @@ use axum::{
 };
 use axum_server::tls_rustls::RustlsConfig;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -143,10 +144,31 @@ async fn serve_firmware(
     let bytes = tokio::fs::read(&cfg.firmware_path)
         .await
         .map_err(|_| StatusCode::NOT_FOUND)?;
+    let served_sha256 = hex::encode(Sha256::digest(&bytes));
+    let head24 = hex::encode(&bytes[..bytes.len().min(24)]);
+    if !served_sha256.eq_ignore_ascii_case(&cfg.firmware_sha256) {
+        tracing::error!(
+            path = %cfg.firmware_path.display(),
+            expected_sha256 = %cfg.firmware_sha256,
+            served_sha256 = %served_sha256,
+            head24 = %head24,
+            "refusing to serve firmware because bytes on disk do not match selected firmware hash"
+        );
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    tracing::info!(
+        path = %cfg.firmware_path.display(),
+        served_sha256 = %served_sha256,
+        head24 = %head24,
+        "firmware bytes loaded for response"
+    );
 
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, "application/octet-stream")
         .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CACHE_CONTROL, "no-store")
+        .header("X-Firmware-Sha256", served_sha256)
+        .header("X-Firmware-Head24", head24)
         .header(
             header::CONTENT_DISPOSITION,
             HeaderValue::from_static("attachment; filename=firmware.bin"),
@@ -163,10 +185,7 @@ async fn serve_firmware(
                 .to_vec();
             builder = builder
                 .status(StatusCode::PARTIAL_CONTENT)
-                .header(
-                    header::CONTENT_RANGE,
-                    format!("bytes {start}-{end}/{size}"),
-                )
+                .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{size}"))
                 .header(header::CONTENT_LENGTH, content_len);
             Body::from(chunk)
         }
@@ -184,7 +203,9 @@ fn parse_range(range: Option<&HeaderValue>, size: u64) -> Result<Option<(u64, u6
         return Ok(None);
     };
 
-    let raw = range.to_str().map_err(|_| StatusCode::RANGE_NOT_SATISFIABLE)?;
+    let raw = range
+        .to_str()
+        .map_err(|_| StatusCode::RANGE_NOT_SATISFIABLE)?;
     let raw = raw
         .strip_prefix("bytes=")
         .ok_or(StatusCode::RANGE_NOT_SATISFIABLE)?;
@@ -287,10 +308,7 @@ impl ServerHandles {
     }
 }
 
-pub async fn start(
-    cfg: Arc<ServerConfig>,
-    cert: &SelfSignedCert,
-) -> anyhow::Result<ServerHandles> {
+pub async fn start(cfg: Arc<ServerConfig>, cert: &SelfSignedCert) -> anyhow::Result<ServerHandles> {
     let app = router(cfg.clone());
 
     let http_addr = SocketAddr::new(cfg.bind_ip, 80);
@@ -311,8 +329,8 @@ pub async fn start(
 
     // HTTPS listener. Force HTTP/1.1 only — ESP32's esp_http_client
     // doesn't support HTTP/2, and ALPN negotiation can cause issues.
-    let certs = rustls_pemfile::certs(&mut cert.cert_pem.as_bytes())
-        .collect::<Result<Vec<_>, _>>()?;
+    let certs =
+        rustls_pemfile::certs(&mut cert.cert_pem.as_bytes()).collect::<Result<Vec<_>, _>>()?;
     let key = rustls_pemfile::private_key(&mut cert.key_pem.as_bytes())?
         .ok_or_else(|| anyhow::anyhow!("no private key found in PEM"))?;
     let mut server_config = rustls::ServerConfig::builder()

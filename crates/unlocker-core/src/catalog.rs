@@ -41,13 +41,22 @@ fn write_cached_catalog(catalog: &Catalog) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_one(client: &reqwest::Client, source: Source, url: &str) -> Result<Vec<CrossPointRelease>> {
-    let resp = client.get(url).send().await
+async fn fetch_one(
+    client: &reqwest::Client,
+    source: Source,
+    url: &str,
+) -> Result<Vec<CrossPointRelease>> {
+    let resp = client
+        .get(url)
+        .send()
+        .await
         .with_context(|| format!("fetching catalog {url}"))?;
     if !resp.status().is_success() {
         return Err(anyhow!("catalog {url} HTTP {}", resp.status()));
     }
-    let mut cat: Catalog = resp.json().await
+    let mut cat: Catalog = resp
+        .json()
+        .await
         .with_context(|| format!("decoding catalog {url}"))?;
     let slug = source.slug();
     for r in &mut cat.releases {
@@ -83,7 +92,10 @@ pub async fn fetch_catalog(client: &reqwest::Client) -> Result<Catalog> {
             .with_context(|| format!("all catalogs failed ({})", errors.join("; ")));
     }
 
-    let cat = Catalog { schema_version: 1, releases };
+    let cat = Catalog {
+        schema_version: 1,
+        releases,
+    };
     let _ = write_cached_catalog(&cat);
     Ok(cat)
 }
@@ -206,10 +218,13 @@ pub fn cached_path(sha256: &str) -> Result<Option<PathBuf>> {
 }
 
 pub fn verify_file(path: &Path, expected_sha: &str) -> Result<bool> {
-    let mut hasher = Sha256::new();
-    let mut f = std::fs::File::open(path)?;
-    std::io::copy(&mut f, &mut hasher)?;
-    let got = hex::encode(hasher.finalize());
+    let got = hash_file(path)?;
     Ok(got.eq_ignore_ascii_case(expected_sha))
 }
 
+pub fn hash_file(path: &Path) -> Result<String> {
+    let mut hasher = Sha256::new();
+    let mut f = std::fs::File::open(path)?;
+    std::io::copy(&mut f, &mut hasher)?;
+    Ok(hex::encode(hasher.finalize()))
+}
