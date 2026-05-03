@@ -44,7 +44,7 @@ export interface CrossPointRelease {
   name: string;
   version: string;
   released_at: string;
-  notes: string;
+  notes?: string;
   firmware_url: string;
   firmware_sha256: string | null;
   size: number;

@@ -92,6 +92,7 @@ pub struct CrossPointRelease {
     pub name: String,
     pub version: String,
     pub released_at: String,
+    #[serde(default)]
     pub notes: String,
     pub firmware_url: String,
     pub firmware_sha256: Option<String>,
