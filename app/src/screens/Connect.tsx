@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import { Card, Eyebrow, Heading, StatusDot, Subhead } from "../components/ui";
+import { isWindows } from "../platform";
 import { saveResumeInstall } from "../resumeInstall";
 import { useSessionLog } from "../store";
 import type { Locale, Model, StateKind } from "../types";
@@ -106,8 +107,10 @@ export function Connect({ state }: { state: StateKind }) {
           </Heading>
           <Subhead>
             {phase === "preparing"
-              ? "Verifying SHA-256 as it streams. After this Unlocker is fully offline — your Mac can lose internet without affecting the install."
-              : "Preparing the virtual network interface…"}
+              ? `Verifying SHA-256 as it streams. After this Unlocker is fully offline — your ${isWindows() ? "PC" : "Mac"} can lose internet without affecting the install.`
+              : isWindows()
+                ? "Starting Mobile Hotspot…"
+                : "Preparing the virtual network interface…"}
           </Subhead>
         </div>
         <Card>
@@ -118,7 +121,30 @@ export function Connect({ state }: { state: StateKind }) {
     );
   }
 
+  // On Windows the helper brings the Mobile Hotspot up programmatically (one
+  // WinRT call), so this state is short-lived and there is nothing for the
+  // user to do. On macOS it's a manual step in System Settings followed by an
+  // app relaunch to bind to the new bridge interface.
   if (phase === "waiting_for_sharing") {
+    if (isWindows()) {
+      return (
+        <div className="space-y-6">
+          <div>
+            <Eyebrow>Step 4 · Hotspot</Eyebrow>
+            <Heading>Bringing up Mobile Hotspot…</Heading>
+            <Subhead>
+              Unlocker is asking Windows to start a private hotspot
+              (192.168.137.0/24). This usually takes a couple of seconds.
+            </Subhead>
+          </div>
+          <Card>
+            <ProgressBar />
+          </Card>
+          <LogPanel entries={logs} />
+        </div>
+      );
+    }
+
     return (
       <div className="space-y-6">
         <div>
@@ -215,8 +241,12 @@ export function Connect({ state }: { state: StateKind }) {
           done={deviceConnected}
           active={!deviceConnected}
         >
-          On your Xteink, go to Settings → Wi-Fi and connect to the
-          network you created in Internet Sharing.
+          On your Xteink, go to Settings → Wi-Fi and connect to the{" "}
+          <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-xs text-stone-700">
+            {info.ssid ?? "CrossPoint-Setup"}
+          </span>{" "}
+          network using password{" "}
+          <span className="font-mono text-stone-700">{info.psk ?? "—"}</span>.
           {deviceConnected && info.device_ip && (
             <span className="ml-2 text-xs text-brand-500">
               connected ({info.device_ip})

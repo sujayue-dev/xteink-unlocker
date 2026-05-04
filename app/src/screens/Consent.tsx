@@ -7,6 +7,7 @@ import {
   Heading,
   PrimaryButton,
 } from "../components/ui";
+import { isWindows } from "../platform";
 
 export function Consent() {
   const [general, setGeneral] = useState(false);
@@ -35,8 +36,9 @@ export function Consent() {
         </h2>
         <ul className="mt-3 space-y-2 text-sm/6 text-stone-600">
           <li>
-            – Briefly disconnect your Mac's Wi-Fi to create a private hotspot
-            for your device. Wired Ethernet is unaffected.
+            {isWindows()
+              ? "– Briefly turn on Windows Mobile Hotspot to create a private network for your device. Your Wi-Fi adapter will be in use during the install."
+              : "– Briefly disconnect your Mac's Wi-Fi to create a private hotspot for your device. Wired Ethernet is unaffected."}
           </li>
           <li>
             – Replace the firmware on the Xteink with CrossPoint, using the
@@ -53,8 +55,8 @@ export function Consent() {
               className="mt-1 size-4 rounded border-stone-300 text-brand-500 focus:ring-brand-500"
             />
             <span>
-              I understand Unlocker will modify network settings on my Mac and
-              install firmware on my device.
+              I understand Unlocker will modify network settings on this
+              computer and install firmware on my device.
             </span>
           </label>
           <label className="flex items-start gap-3 text-sm/6 text-stone-700">

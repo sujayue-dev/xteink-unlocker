@@ -97,7 +97,10 @@ async fn check_update(
         "stock device requested update"
     );
 
-    cfg.on_manifest_request.notify_waiters();
+    // notify_one buffers a permit if no waiter is registered yet — protects
+    // against the device hitting check-update before the orchestrator has
+    // begun awaiting the manifest event (e.g. when device discovery is slow).
+    cfg.on_manifest_request.notify_one();
 
     let filename = format!(
         "V99.9.9-{model}-{locale}-PROD-{date}.bin",
@@ -139,7 +142,7 @@ async fn serve_firmware(
     // Advance the app UI as soon as the device begins the firmware GET.
     // Waiting for the whole transfer to finish hides the install screen while
     // the device is already on its OTA progress view.
-    cfg.on_firmware_streamed.notify_waiters();
+    cfg.on_firmware_streamed.notify_one();
 
     let bytes = tokio::fs::read(&cfg.firmware_path)
         .await
@@ -266,7 +269,7 @@ async fn github_releases_latest(
         "CrossPoint device requested update via GitHub API"
     );
 
-    cfg.on_manifest_request.notify_waiters();
+    cfg.on_manifest_request.notify_one();
 
     // Use the hostname that matches our Let's Encrypt cert so TLS
     // validation passes (SAN check). DNS spoofs this to the bridge IP.

@@ -60,7 +60,13 @@ impl ServerHolder {
         };
 
         let dns_cfg = DnsConfig::for_locale(spec.locale, bridge_ip, spec.dns_internal_port);
-        let dns_handle = dns::start(dns_cfg).await?;
+        let dns_handle = dns::start(dns_cfg.clone()).await?;
+
+        // On Windows, ICS owns port 53 on the bridge IP. Bridge our DNS
+        // spoofing through the system hosts file so the ICS DNS proxy
+        // resolves the spoofed names to the bridge IP.
+        #[cfg(windows)]
+        crate::ops::hosts_arm(&dns_cfg.spoofed_hosts, bridge_ip).await?;
 
         let on_manifest = Arc::new(Notify::new());
         let on_firmware = Arc::new(Notify::new());
@@ -98,6 +104,10 @@ impl ServerHolder {
             }
             if let Some(d) = set.dns.take() {
                 d.shutdown().await;
+            }
+            #[cfg(windows)]
+            {
+                let _ = crate::ops::hosts_disarm().await;
             }
             tracing::info!("spoofing servers disarmed");
         }

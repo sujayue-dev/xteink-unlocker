@@ -9,6 +9,7 @@ import {
   Subhead,
   Callout,
 } from "../components/ui";
+import { isWindows } from "../platform";
 
 interface HelperStatus {
   installed: boolean;
@@ -106,9 +107,9 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
           <Eyebrow>One-time setup</Eyebrow>
           <Heading>Start the privileged helper</Heading>
           <Subhead>
-            Unlocker needs a small background helper to manage your Mac's
-            network during the install. macOS will ask for your password to
-            authorize it.
+            {isWindows()
+              ? "Unlocker needs a small background helper to manage your computer's network during the install. Windows will show a UAC prompt to authorize it."
+              : "Unlocker needs a small background helper to manage your Mac's network during the install. macOS will ask for your password to authorize it."}
           </Subhead>
         </div>
 
@@ -124,8 +125,9 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
               Start the helper
             </h2>
             <p className="mt-2 text-sm text-stone-600">
-              Click Start and enter your Mac password when prompted. The helper
-              runs only while Unlocker is open.
+              {isWindows()
+                ? "Click Start and approve the UAC prompt when Windows asks. The helper runs only while Unlocker is open."
+                : "Click Start and enter your Mac password when prompted. The helper runs only while Unlocker is open."}
             </p>
             <div className="mt-5 flex justify-end">
               <PrimaryButton onClick={onInstall}>Start helper</PrimaryButton>
@@ -136,7 +138,9 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
         {phase === "registering" && (
           <Card>
             <p className="text-sm text-stone-500">
-              Starting helper… Enter your password if macOS prompts you.
+              {isWindows()
+                ? "Starting helper… Approve the UAC prompt if Windows shows one."
+                : "Starting helper… Enter your password if macOS prompts you."}
             </p>
           </Card>
         )}

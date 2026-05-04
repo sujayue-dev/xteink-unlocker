@@ -16,6 +16,17 @@ struct AppState {
 }
 
 #[tauri::command]
+fn get_platform() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    }
+}
+
+#[tauri::command]
 async fn get_state(state: State<'_, AppState>) -> Result<OrchState, String> {
     Ok(state.orch.current_state().await)
 }
@@ -529,24 +540,36 @@ async fn run_prepared_install(
 
     // ── Hotspot ──
     orch.transition(OrchState::SettingUpHotspot, None).await;
-    let ssid = "CrossPoint-Setup".to_string();
-    let psk = format!("xtu-{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
-    log.push("info", "configuring Internet Sharing", None).await;
+    // Fixed creds: the user has to type the PSK on the Xteink keyboard, so a
+    // randomized one is hostile UX. The hotspot is short-lived and on-demand.
+    let ssid = "xteink".to_string();
+    let psk = "11111111".to_string();
+    let hotspot_label = if cfg!(target_os = "windows") {
+        "Mobile Hotspot"
+    } else {
+        "Internet Sharing"
+    };
+    log.push("info", format!("configuring {hotspot_label}"), None)
+        .await;
     if let Err(e) = runtime.prepare_hotspot(&helper, &ssid, &psk).await {
         log.push(
             "error",
-            format!("Internet Sharing setup failed: {e:#}"),
+            format!("{hotspot_label} setup failed: {e:#}"),
             None,
         )
         .await;
         return Err(e.into());
     }
-    log.push(
-        "info",
-        "ready — enable Internet Sharing in System Settings",
-        None,
-    )
-    .await;
+    if cfg!(target_os = "windows") {
+        log.push("info", "Mobile Hotspot up", None).await;
+    } else {
+        log.push(
+            "info",
+            "ready — enable Internet Sharing in System Settings",
+            None,
+        )
+        .await;
+    }
 
     // Wait for the user to enable Internet Sharing in System Settings.
     orch.transition(OrchState::WaitingForInternetSharing, None)
@@ -614,11 +637,12 @@ async fn run_prepared_install(
         None,
     )
     .await;
-    orch.transition(
-        OrchState::Done,
-        Some("Check your device, then clean up the network on this Mac.".into()),
-    )
-    .await;
+    let done_msg = if cfg!(target_os = "windows") {
+        "Check your device, then clean up the network on this PC."
+    } else {
+        "Check your device, then clean up the network on this Mac."
+    };
+    orch.transition(OrchState::Done, Some(done_msg.into())).await;
 
     Ok(())
 }
@@ -645,11 +669,16 @@ async fn confirm_running(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 async fn cleanup_after_install(state: State<'_, AppState>) -> Result<(), String> {
+    let label = if cfg!(target_os = "windows") {
+        "Mobile Hotspot"
+    } else {
+        "Internet Sharing"
+    };
     state
         .log
         .push(
             "info",
-            "cleaning up Internet Sharing and local network changes",
+            format!("cleaning up {label} and local network changes"),
             None,
         )
         .await;
@@ -734,6 +763,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            get_platform,
             get_state,
             get_session,
             fetch_catalog,

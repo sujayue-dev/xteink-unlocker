@@ -8,6 +8,7 @@ import {
   StatusDot,
   Subhead,
 } from "../components/ui";
+import { isWindows } from "../platform";
 import { useSessionLog } from "../store";
 import { useState } from "react";
 import type { StateKind } from "../types";
@@ -117,10 +118,13 @@ export function Done() {
     <div className="space-y-6">
       <div>
         <Eyebrow>Final step</Eyebrow>
-        <Heading>Check your Xteink, then clean up this Mac</Heading>
+        <Heading>
+          Check your Xteink, then clean up this {isWindows() ? "PC" : "Mac"}
+        </Heading>
         <Subhead>
           Unlocker can only confirm that the device started its own updater.
-          The final result is visible on the Xteink itself, not from the Mac.
+          The final result is visible on the Xteink itself, not from{" "}
+          {isWindows() ? "this PC" : "the Mac"}.
         </Subhead>
       </div>
       <Card>
@@ -136,7 +140,7 @@ export function Done() {
       </Card>
       <Card>
         <h2 className="font-serif text-lg font-medium text-stone-900">
-          On this Mac
+          {isWindows() ? "On this PC" : "On this Mac"}
         </h2>
         <p className="mt-3 text-sm text-stone-600">
           Only do this <strong>after</strong> you have verified the update
@@ -145,8 +149,17 @@ export function Done() {
         </p>
         <ol className="mt-3 space-y-2 text-sm text-stone-600 list-decimal list-inside">
           <li>Confirm the update succeeded on the device.</li>
-          <li>Turn Internet Sharing off in System Settings.</li>
-          <li>Click the button below to tear down Unlocker’s local network changes.</li>
+          {isWindows() ? (
+            <li>
+              Click the button below — Unlocker will turn off Mobile Hotspot
+              and restore your network.
+            </li>
+          ) : (
+            <>
+              <li>Turn Internet Sharing off in System Settings.</li>
+              <li>Click the button below to tear down Unlocker's local network changes.</li>
+            </>
+          )}
           <li>Quit Unlocker.</li>
         </ol>
         <div className="mt-5 flex justify-end">
@@ -190,8 +203,9 @@ export function Failed({ error }: { error: string | null }) {
         <Eyebrow>Something went wrong</Eyebrow>
         <Heading>Install failed</Heading>
         <Subhead>
-          Unlocker has rolled back any network changes on your Mac. Your
-          device may have its own rollback path; see below.
+          Unlocker has rolled back any network changes on this{" "}
+          {isWindows() ? "PC" : "Mac"}. Your device may have its own rollback
+          path; see below.
         </Subhead>
       </div>
       <Card>

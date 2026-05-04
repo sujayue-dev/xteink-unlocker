@@ -16,6 +16,12 @@ const STATE_PATH: &str = "/var/db/com.sofriendly.crosspoint.unlocker.helper.stat
 pub struct HelperState {
     pub internet_sharing_active: bool,
     pub pfctl_anchor_loaded: bool,
+    /// Windows-only: tracks whether the helper has appended spoofing entries to
+    /// the system hosts file. Needed because Windows' ICS DNS proxy owns port
+    /// 53 on the bridge IP, so we redirect lookups via the hosts file rather
+    /// than binding our own DNS.
+    #[serde(default)]
+    pub hosts_modified: bool,
 }
 
 static LOCK: Mutex<()> = Mutex::const_new(());
@@ -71,6 +77,11 @@ pub async fn recover() -> anyhow::Result<()> {
     if s.internet_sharing_active {
         tracing::warn!("recovering: stopping leftover Internet Sharing");
         let _ = crate::ops::is_disable().await;
+    }
+    #[cfg(windows)]
+    if s.hosts_modified {
+        tracing::warn!("recovering: removing leftover hosts file entries");
+        let _ = crate::ops::hosts_disarm().await;
     }
     Ok(())
 }
