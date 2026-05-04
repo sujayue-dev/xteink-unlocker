@@ -8,7 +8,9 @@
  *     The Tauri updater endpoint. Pushed by scripts/upload-to-cloudflare.sh.
  *
  *   GET /unlocker-latest.dmg
- *     Convenience redirect to the most-recent versioned dmg.
+ *   GET /unlocker-latest.msi
+ *   GET /unlocker-latest.tar.gz
+ *     Convenience redirects to the most-recent versioned artifact.
  *
  * Anything else is a passthrough to the bucket.
  */
@@ -42,19 +44,21 @@ export default {
       });
     }
 
-    // /unlocker-latest[-arch].(dmg|tar.gz)
+    // /unlocker-latest[-arch].(dmg|tar.gz|msi)
     const latestMatch = key.match(
-      /^unlocker-latest(?:-(arm64|amd64))?\.(dmg|tar\.gz)$/,
+      /^unlocker-latest(?:-(arm64|amd64))?\.(dmg|tar\.gz|msi)$/,
     );
     if (latestMatch) {
       try {
-        const latestJson = await env.BUCKET.get("latest.json");
-        if (latestJson) {
-          const latest = await latestJson.json<{
+        const ext = latestMatch[2];
+        const manifestKey =
+          ext === "msi" ? "latest-windows-x86_64.json" : "latest.json";
+        const manifestObj = await env.BUCKET.get(manifestKey);
+        if (manifestObj) {
+          const latest = await manifestObj.json<{
             version: string;
             platforms: Record<string, { url: string; signature: string }>;
           }>();
-          const ext = latestMatch[2];
 
           const extractVersion = (platformKey: string): string | null => {
             const platformUrl = latest.platforms[platformKey]?.url;
@@ -66,6 +70,7 @@ export default {
           const platformForExt: Record<string, string> = {
             dmg: "darwin-aarch64",
             "tar.gz": "darwin-aarch64",
+            msi: "windows-x86_64",
           };
           const platformKey = platformForExt[ext];
           const version =
@@ -74,6 +79,7 @@ export default {
           const fileMap: Record<string, string> = {
             dmg: `v${version}/XteinkUnlocker_${version}_universal.dmg`,
             "tar.gz": `v${version}/XteinkUnlocker_${version}_darwin-universal.app.tar.gz`,
+            msi: `v${version}/XteinkUnlocker_${version}_x64.msi`,
           };
           const targetKey = fileMap[ext];
           if (targetKey) {
@@ -101,6 +107,8 @@ export default {
         headers.set("Content-Type", "application/x-apple-diskimage");
       } else if (key.endsWith(".tar.gz")) {
         headers.set("Content-Type", "application/gzip");
+      } else if (key.endsWith(".msi")) {
+        headers.set("Content-Type", "application/x-msi");
       } else if (key.endsWith(".sig")) {
         headers.set("Content-Type", "text/plain");
       } else {
