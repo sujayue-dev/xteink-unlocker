@@ -78,49 +78,35 @@ if ($msiFile) {
 }
 
 Write-Host ""
-Write-Host "=== Updating latest.json ===" -ForegroundColor Green
+Write-Host "=== Writing latest-windows-x86_64.json ===" -ForegroundColor Green
+
+# Each platform owns its own update manifest so cutting a Windows release
+# never touches the macOS one. Tauri's updater picks the right file via
+# {{target}}-{{arch}} substitution in the endpoint URL.
 
 $winSig = ""
 if ($nsisFile -and (Test-Path "$($nsisFile.FullName).sig")) {
     $winSig = (Get-Content "$($nsisFile.FullName).sig" -Raw).Trim()
 }
 
-$latestJsonPath = "$bundleRoot\latest.json"
-
-# Pull existing latest.json so we preserve other platforms (e.g. darwin-aarch64).
-try {
-    & aws s3 cp "s3://$($env:CLOUDFLARE_R2_BUCKET)/latest.json" $latestJsonPath `
-        --endpoint-url $R2_ENDPOINT --no-progress 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "no existing latest.json" }
-} catch {
-    Set-Content $latestJsonPath '{"platforms":{}}'
+$latest = [PSCustomObject]@{
+    version  = $VERSION
+    notes    = "Update to version $VERSION"
+    pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+    platforms = [PSCustomObject]@{
+        "windows-x86_64" = [PSCustomObject]@{
+            signature = $winSig
+            url       = "https://unlocker-releases.crosspointreader.com/v$VERSION/XteinkUnlocker_${VERSION}_x64-setup.exe"
+        }
+    }
 }
 
-$latest = Get-Content $latestJsonPath -Raw | ConvertFrom-Json
-
-if (-not $latest.platforms) {
-    $latest | Add-Member -NotePropertyName platforms -NotePropertyValue (New-Object PSObject) -Force
-}
-
-$latest.version = $VERSION
-$latest.pub_date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-if (-not $latest.notes) { $latest.notes = "Update to version $VERSION" }
-
-$winEntry = [PSCustomObject]@{
-    signature = $winSig
-    url       = "https://unlocker-releases.crosspointreader.com/v$VERSION/XteinkUnlocker_${VERSION}_x64-setup.exe"
-}
-if ($latest.platforms.PSObject.Properties.Name -contains "windows-x86_64") {
-    $latest.platforms.'windows-x86_64' = $winEntry
-} else {
-    $latest.platforms | Add-Member -NotePropertyName "windows-x86_64" -NotePropertyValue $winEntry -Force
-}
-
+$latestJsonPath = "$bundleRoot\latest-windows-x86_64.json"
 $json = $latest | ConvertTo-Json -Depth 10
 [System.IO.File]::WriteAllText($latestJsonPath, $json, [System.Text.UTF8Encoding]::new($false))
 
-Upload-File $latestJsonPath "latest.json"
+Upload-File $latestJsonPath "latest-windows-x86_64.json"
 
 Write-Host ""
 Write-Host "=== Upload complete ===" -ForegroundColor Green
-Write-Host "Update endpoint: https://unlocker-releases.crosspointreader.com/latest.json"
+Write-Host "Windows update endpoint: https://unlocker-releases.crosspointreader.com/latest-windows-x86_64.json"
