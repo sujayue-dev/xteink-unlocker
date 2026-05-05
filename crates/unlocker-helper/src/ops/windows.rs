@@ -170,8 +170,40 @@ pub async fn pfctl_remove() -> Result<()> {
 // names there makes it return 192.168.137.1 for the device's queries.
 
 const HOSTS_PATH: &str = r"C:\Windows\System32\drivers\etc\hosts";
+const HOSTS_TMP_PATH: &str = r"C:\Windows\System32\drivers\etc\hosts.xteink.tmp";
 const HOSTS_BEGIN: &str = "# BEGIN xteink-unlocker";
 const HOSTS_END: &str = "# END xteink-unlocker";
+
+/// Replace the system hosts file by writing a sibling tempfile and renaming
+/// over it. Defender / dnscache frequently hold a read-share on `hosts`,
+/// causing direct writes to fail with `ERROR_SHARING_VIOLATION` (32) or
+/// `ERROR_LOCK_VIOLATION` (33). Atomic replace via `MoveFileExW` succeeds
+/// against most of these locks; we retry the rename on the rest.
+async fn replace_hosts_file(content: &str) -> Result<()> {
+    tokio::fs::write(HOSTS_TMP_PATH, content)
+        .await
+        .with_context(|| format!("writing temp hosts file at {HOSTS_TMP_PATH}"))?;
+
+    let mut last_err: Option<std::io::Error> = None;
+    for attempt in 0..10 {
+        match tokio::fs::rename(HOSTS_TMP_PATH, HOSTS_PATH).await {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                let code = e.raw_os_error();
+                let retryable = matches!(code, Some(32) | Some(33));
+                if !retryable {
+                    let _ = tokio::fs::remove_file(HOSTS_TMP_PATH).await;
+                    return Err(anyhow!(e)).context("renaming temp hosts file into place");
+                }
+                tracing::warn!(?code, attempt, "hosts file locked, retrying");
+                last_err = Some(e);
+                tokio::time::sleep(std::time::Duration::from_millis(150 * (attempt + 1))).await;
+            }
+        }
+    }
+    let _ = tokio::fs::remove_file(HOSTS_TMP_PATH).await;
+    Err(anyhow!(last_err.unwrap())).context("hosts file remained locked after retries")
+}
 
 pub async fn hosts_arm(hosts: &[String], ip: std::net::Ipv4Addr) -> Result<()> {
     // Idempotent: strip any prior block before appending a fresh one.
@@ -193,7 +225,7 @@ pub async fn hosts_arm(hosts: &[String], ip: std::net::Ipv4Addr) -> Result<()> {
         existing.push('\n');
     }
     existing.push_str(&block);
-    tokio::fs::write(HOSTS_PATH, existing)
+    replace_hosts_file(&existing)
         .await
         .context("writing hosts file")?;
     state::mutate(|s| s.hosts_modified = true).await?;
@@ -236,7 +268,7 @@ pub async fn hosts_disarm() -> Result<()> {
     if !out.ends_with('\n') {
         out.push('\n');
     }
-    tokio::fs::write(HOSTS_PATH, out)
+    replace_hosts_file(&out)
         .await
         .context("writing hosts file")?;
     state::mutate(|s| s.hosts_modified = false).await?;
