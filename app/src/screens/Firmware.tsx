@@ -220,7 +220,7 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
                 Local firmware
               </div>
               <div className="mt-1 text-xs text-stone-500">
-                Use a firmware .bin from this computer for recovery testing.
+                Sideload a firmware .bin from this computer.
               </div>
             </div>
             <button
