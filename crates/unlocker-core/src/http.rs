@@ -76,9 +76,12 @@ pub fn router(cfg: Arc<ServerConfig>) -> Router {
     Router::new()
         .route("/api/v1/check-update", get(check_update))
         .route("/firmware/{filename}", get(serve_firmware))
-        // CrossPoint OTA: spoofs the GitHub releases API endpoint.
+        // GitHub-shaped OTA: CrossPoint, CrossInk, and CrossPoint KO all hit
+        // `api.github.com/repos/{owner}/{repo}/releases/latest`. We DNS-spoof
+        // api.github.com to ourselves, so any repo path lands here — answer
+        // with our manifest regardless of which firmware variant is asking.
         .route(
-            "/repos/crosspoint-reader/crosspoint-reader/releases/latest",
+            "/repos/{owner}/{repo}/releases/latest",
             get(github_releases_latest),
         )
         .fallback(catch_all)
@@ -257,16 +260,19 @@ fn parse_range(range: Option<&HeaderValue>, size: u64) -> Result<Option<(u64, u6
     Ok(Some((start, end)))
 }
 
-/// Spoofs `GET /repos/crosspoint-reader/crosspoint-reader/releases/latest`
-/// so CrossPoint's OTA updater sees the firmware we're serving as a new release.
+/// Spoofs `GET /repos/{owner}/{repo}/releases/latest` for any repo. Used by
+/// CrossPoint, CrossInk, and CrossPoint KO firmwares — they all check GitHub
+/// for updates, just under different repo paths.
 async fn github_releases_latest(
     State(cfg): State<Arc<ServerConfig>>,
+    AxPath((owner, repo)): AxPath<(String, String)>,
     headers: HeaderMap,
 ) -> Json<serde_json::Value> {
     tracing::info!(
         host = ?headers.get(header::HOST),
         user_agent = ?headers.get(header::USER_AGENT),
-        "CrossPoint device requested update via GitHub API"
+        %owner, %repo,
+        "device requested update via GitHub API"
     );
 
     cfg.on_manifest_request.notify_one();
