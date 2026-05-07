@@ -120,7 +120,7 @@ Bumps the version, builds + signs + notarizes, commits the version files, tags `
 ### Auto-update infrastructure
 
 - **Endpoint:** `https://unlocker-releases.crosspointreader.com/latest.json`
-- **Bucket:** `unlocker-releases` on Cloudflare R2 (account `73f82799694e2fad048f544e0be28c1c`)
+- **Bucket:** `unlocker-releases` on Cloudflare R2
 - **Worker:** `workers/releases/` — deploy with `cd workers/releases && npx wrangler deploy`
 - **Public key** (paste into the worker route or whatever consumes `latest.json` if you ever need to verify outside Tauri):
   ```
