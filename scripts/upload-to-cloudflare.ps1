@@ -62,8 +62,9 @@ Write-Host "=== Uploading Windows artifacts ===" -ForegroundColor Green
 
 $bundleRoot = "target\release\bundle"
 
-# NSIS .exe is what the Tauri updater consumes on Windows.
-$nsisFile = Get-ChildItem -Path "$bundleRoot\nsis\*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+# NSIS .exe is what the Tauri updater consumes on Windows. Filter by $VERSION
+# so a stale installer from a previous build can't be picked up by accident.
+$nsisFile = Get-ChildItem -Path "$bundleRoot\nsis\*${VERSION}*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($nsisFile) {
     Upload-File $nsisFile.FullName "v$VERSION/XteinkUnlocker_${VERSION}_x64-setup.exe"
     if (Test-Path "$($nsisFile.FullName).sig") {
@@ -72,7 +73,7 @@ if ($nsisFile) {
 }
 
 # Optional MSI mirror.
-$msiFile = Get-ChildItem -Path "$bundleRoot\msi\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+$msiFile = Get-ChildItem -Path "$bundleRoot\msi\*${VERSION}*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($msiFile) {
     Upload-File $msiFile.FullName "v$VERSION/XteinkUnlocker_${VERSION}_x64.msi"
 }
