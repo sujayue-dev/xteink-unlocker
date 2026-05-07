@@ -1,4 +1,4 @@
-# Build script for Windows.
+﻿# Build script for Windows.
 # Usage:  .\scripts\build-windows.ps1 [major|minor|patch]
 # If a bump type is provided, the version is incremented before build.
 #

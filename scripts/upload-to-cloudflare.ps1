@@ -1,4 +1,4 @@
-# Upload Windows artifacts to R2, then merge a windows-x86_64 entry into
+﻿# Upload Windows artifacts to R2, then merge a windows-x86_64 entry into
 # latest.json so the Tauri updater picks it up. Run after build-windows.ps1.
 #
 # Required env (loaded from .env.local if present):
