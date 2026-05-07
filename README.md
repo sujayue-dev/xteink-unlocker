@@ -1,6 +1,6 @@
 # Xteink Unlocker
 
-Desktop app that installs CrossPoint Reader on USB-locked Xteink X3/X4 devices by intercepting their OTA update mechanism.
+Desktop app that installs CrossPoint Reader (and other compatible firmwares) on USB-locked Xteink X3/X4 devices by intercepting their OTA update mechanism. Works against stock Xteink firmware as well as already-flashed CrossPoint and CrossInk devices, enabling cross-flashing between firmwares.
 
 - [`xteink-unlocker-spec.md`](./xteink-unlocker-spec.md) — product spec
 - [`INTEGRATION.md`](./INTEGRATION.md) — guide for pointing Unlocker at a different firmware (catalog + image requirements, including the X3 eFuse blk validity workaround)
@@ -8,10 +8,13 @@ Desktop app that installs CrossPoint Reader on USB-locked Xteink X3/X4 devices b
 
 ## How it works
 
-1. The Mac becomes a Wi-Fi hotspot via a `feth` virtual upstream + Internet Sharing.
-2. The privileged helper runs DNS / HTTP / HTTPS listeners bound to the bridge IP. DNS spoofs the locale's Xteink API host (`api-prod.xteink.cc` / `.cn`); HTTPS uses a self-signed cert with the right SAN (stock doesn't validate the chain).
-3. The user taps **Check for Updates** on the device. The spoofed `/api/v1/check-update` returns a manifest pointing at firmware Unlocker also serves over plain HTTP on the bridge IP.
-4. The device installs via its own `esp_https_ota` flow.
+1. The Mac becomes a Wi-Fi hotspot via a `feth` virtual upstream + Internet Sharing. (Windows uses Mobile Hotspot — see below.)
+2. The privileged helper runs DNS / HTTP / HTTPS listeners bound to the bridge IP. DNS spoofs three hostnames: the locale's Xteink API host (`api-prod.xteink.cc` / `.cn`), `api.github.com`, and `unlocker.crosspointreader.com`. HTTPS uses a real Let's Encrypt cert for `unlocker.crosspointreader.com` — trusted by ESP-IDF's `esp_crt_bundle`, so both stock and CrossPoint/CrossInk firmwares accept it.
+3. The user taps **Check for Updates** on the device. Depending on what's running:
+   - **Stock Xteink** → hits `https://api-prod.xteink.{cc,cn}/api/v1/check-update`. We return a manifest pointing at a plain-HTTP firmware URL on the bridge IP.
+   - **CrossPoint / CrossInk** → hits `https://api.github.com/repos/{owner}/{repo}/releases/latest`. We return a GitHub-shaped releases JSON with all known asset variants (`firmware.bin`, `firmware-{tiny,xlarge,no_emoji}-…bin`) all pointing at the same HTTPS firmware URL on `unlocker.crosspointreader.com`. The device's variant matcher picks one and downloads.
+4. Whichever name the device picked, the bytes returned are whatever firmware the user chose in the unlocker UI — the asset name is decoupled from the bytes, which is what enables cross-flashing.
+5. The device installs via its own `esp_https_ota` flow.
 
 The firmware Unlocker serves comes from a **catalog** — currently `https://crosspointreader.com/api/catalog`. For other firmwares, see [`INTEGRATION.md`](./INTEGRATION.md).
 
@@ -27,8 +30,13 @@ app/
 scripts/
   bump-version.sh         bump tauri.conf + Cargo.toml + package.json (major|minor|patch)
   build-macos.sh          tauri build → inject helper → sign → notarize → update bundle
+  build-macos-dev.sh      same as above but skips notarization (faster local iteration)
+  build-windows.ps1       Windows equivalent of build-macos.sh (NSIS + MSI + signtool)
   upload-to-cloudflare.sh push artifacts to R2 + refresh latest.json
+  upload-to-cloudflare.ps1 Windows equivalent
   release.sh              the whole pipeline: bump → build → commit → tag → push → upload
+firmware-patches/         pre-patched firmware bins for cases the catalog can't cover
+                          (e.g. the X3 eFuse blk validity workaround)
 workers/
   releases/               Cloudflare Worker fronting the R2 bucket at
                           unlocker-releases.crosspointreader.com
@@ -152,9 +160,28 @@ Requirements:
 
 The PowerShell scripts mirror the macOS pipeline: bump version, `cargo build --release -p unlocker-helper`, `npm run tauri -- build` (NSIS + MSI, picks up `app/src-tauri/tauri.windows.conf.json`), `signtool` for both installers using the Sectigo USB token, then push to R2 and merge a `windows-x86_64` entry into `latest.json` while preserving `darwin-aarch64`.
 
+## Debugging
+
+The helper writes a verbose log of every DNS query, every HTTP/HTTPS request, and every state transition. This is the primary tool for diagnosing OTA failures and noticing when firmware OEMs change their API shape.
+
+- **macOS:** `/tmp/unlocker-helper.log`
+- **Windows:** `C:\ProgramData\CrossPoint\unlocker-helper\unlocker-helper.log`
+
+The file is overwritten on each helper launch. Bump verbosity by setting `RUST_LOG=unlocker_core=debug,unlocker_helper=debug` in the environment that launches the app.
+
+What gets logged on every session:
+
+- `dns query host=… spoofed=true|false` — every DNS lookup the device makes. New unfamiliar hosts here mean the firmware is talking to an endpoint we don't yet spoof.
+- `http request method=… uri=… host=… ua=…` — middleware logs every HTTP/HTTPS hit before any handler runs, including ones that fall through to `catch_all`.
+- `stock device requested update` / `device requested update via GitHub API` / `device activate` — handler-level logs for the recognized OTA endpoints.
+- `unknown request — returning ok stub` (warn level) — fallback handler. Returns a `{code:0,message:"ok",data:{}}` envelope on any unrecognized path so the device doesn't see a 404. Watch this in logs to find new endpoints to promote to real handlers.
+- `firmware download requested` / `serving firmware` — the actual OTA payload transfer. Includes the device's `x-esp32-*` headers, range, and SHA verification of the bytes on disk against the catalog hash.
+
+For OTA install failures, the helper log shows everything *we* see; it can't show the device-side `esp_err_t` from `esp_https_ota_*`. For that, attach USB serial to the device (`screen /dev/cu.usbmodem* 115200` on macOS) and watch the firmware's own `LOG_ERR("OTA", …)` lines.
+
 ## Status
 
-Real systems work in. Privileged helper drives `feth` virtual upstream + Internet Sharing + pfctl + dhcpd lease watching via shell-outs to system tools. DNS / HTTP / HTTPS spoofing servers run inside the helper, bound to the bridge IP. Orchestrator state machine drives the wizard end-to-end. Working installs against stock X3 require the bootloader-validation override described in [`INTEGRATION.md` §2.4](./INTEGRATION.md#24-the-x3-efuse-blk-validity-gotcha-critical) — already shipped in CrossPoint.
+Real systems work in. Privileged helper drives `feth` virtual upstream + Internet Sharing + pfctl + dhcpd lease watching via shell-outs to system tools. DNS / HTTP / HTTPS spoofing servers run inside the helper, bound to the bridge IP. Orchestrator state machine drives the wizard end-to-end. Stock Xteink → CrossPoint and CrossPoint → CrossInk both flash cleanly. CrossInk → CrossPoint is currently failing at `esp_https_ota_finish` for reasons not yet determined from CrossInk's source — see [`crossink-cross-flash-analysis.md`](./crossink-cross-flash-analysis.md). Working installs against stock X3 require the bootloader-validation override described in [`INTEGRATION.md` §2.4](./INTEGRATION.md#24-the-x3-efuse-blk-validity-gotcha-critical) — already shipped in CrossPoint.
 
 ## License
 
