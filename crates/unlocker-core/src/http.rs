@@ -13,9 +13,10 @@ use crate::types::{Locale, Model};
 use axum::{
     body::Body,
     extract::{Path as AxPath, Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderValue, Method, Request as AxRequest, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Json, Response},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
@@ -75,6 +76,7 @@ pub struct ManifestData {
 pub fn router(cfg: Arc<ServerConfig>) -> Router {
     Router::new()
         .route("/api/v1/check-update", get(check_update))
+        .route("/api/v1/device/activate", post(device_activate))
         .route("/firmware/{filename}", get(serve_firmware))
         // GitHub-shaped OTA: CrossPoint, CrossInk, and CrossPoint KO all hit
         // `api.github.com/repos/{owner}/{repo}/releases/latest`. We DNS-spoof
@@ -85,7 +87,27 @@ pub fn router(cfg: Arc<ServerConfig>) -> Router {
             get(github_releases_latest),
         )
         .fallback(catch_all)
+        .layer(middleware::from_fn(log_request))
         .with_state(cfg)
+}
+
+async fn log_request(req: AxRequest<Body>, next: Next) -> Response {
+    let method = req.method().clone();
+    let uri = req.uri().clone();
+    let host = req
+        .headers()
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    let ua = req
+        .headers()
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    tracing::info!(%method, %uri, %host, %ua, "http request");
+    next.run(req).await
 }
 
 async fn check_update(
@@ -316,9 +338,43 @@ async fn github_releases_latest(
     }))
 }
 
-async fn catch_all(headers: HeaderMap, uri: axum::http::Uri) -> impl IntoResponse {
-    tracing::warn!(?uri, ?headers, "unknown request");
-    (StatusCode::NOT_FOUND, "not found")
+/// Stub for `POST /api/v1/device/activate` — V5.5.3+ stock firmware POSTs here
+/// on boot. Returning 404 was harmless for the OTA itself (the device still
+/// downloaded the manifest and firmware) but surfaced as a user-visible error
+/// on the device UI. Reply with the same `{code:0,message:"ok",data:{}}`
+/// envelope the real Xteink API uses so the device treats activation as
+/// successful.
+async fn device_activate(headers: HeaderMap, body: String) -> Json<serde_json::Value> {
+    tracing::info!(
+        host = ?headers.get(header::HOST),
+        device_id = ?headers.get("device_id"),
+        device_type = ?headers.get("device_type"),
+        device_version = ?headers.get("device_version"),
+        body_len = body.len(),
+        "device activate (stubbed ok)"
+    );
+    Json(serde_json::json!({
+        "code": 0,
+        "message": "ok",
+        "data": {},
+    }))
+}
+
+/// Fallback for any request on a spoofed host that didn't match a route.
+///
+/// Returns a benign `{code:0,message:"ok",data:{}}` envelope instead of 404.
+/// The unlocker only sees traffic for hosts it DNS-spoofs, so this fires only
+/// on Xteink API paths we don't yet know about. Logging at `warn` keeps the
+/// URI visible so we can add a real handler the next time the firmware adds
+/// an endpoint.
+async fn catch_all(method: Method, headers: HeaderMap, uri: axum::http::Uri) -> Response {
+    tracing::warn!(%method, ?uri, ?headers, "unknown request — returning ok stub");
+    Json(serde_json::json!({
+        "code": 0,
+        "message": "ok",
+        "data": {},
+    }))
+    .into_response()
 }
 
 pub struct ServerHandles {

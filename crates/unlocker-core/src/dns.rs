@@ -117,6 +117,14 @@ async fn handle_query(
     let qname_norm = query.name().to_string().trim_end_matches('.').to_lowercase();
     let should_spoof = cfg.spoofed_hosts.iter().any(|h| h.to_lowercase() == qname_norm);
 
+    tracing::info!(
+        host = %qname_norm,
+        qtype = ?query.query_type(),
+        src = %src,
+        spoofed = should_spoof,
+        "dns query"
+    );
+
     let mut response = Message::new(request.metadata.id, MessageType::Response, OpCode::Query);
     response.metadata.recursion_desired = request.metadata.recursion_desired;
     response.metadata.recursion_available = true;
