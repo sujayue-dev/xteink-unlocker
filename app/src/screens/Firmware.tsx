@@ -51,7 +51,10 @@ function releaseLabel(r: CrossPointRelease): string {
   return r.variant ? `${r.name} · ${r.variant}` : r.name;
 }
 
-const SOURCE_ORDER: Source[] = ["xteink", "crosspoint_ko", "crossink"];
+// CrossPoint KO is intentionally hidden: its firmware is larger than the
+// OTA slot on stock and CrossPoint, so OTA flashing from anything but KO
+// itself fails. Re-add once KO ships an OTA-sized build.
+const SOURCE_ORDER: Source[] = ["xteink", "crossink"];
 
 export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -221,6 +224,13 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
               </div>
               <div className="mt-1 text-xs text-stone-500">
                 Sideload a firmware .bin from this computer.
+              </div>
+              <div className="mt-2 text-xs text-stone-500">
+                Note: OTA can only write into the device's existing app
+                partition. If your .bin is larger than that slot (for example,
+                CrossPoint KO is too big for stock and CrossPoint layouts), the
+                flash will fail. Switching to a firmware family with a larger
+                partition layout requires a wired USB flash (esptool).
               </div>
             </div>
             <button
