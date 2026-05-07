@@ -281,18 +281,38 @@ async fn github_releases_latest(
     // validation passes (SAN check). DNS spoofs this to the bridge IP.
     let download_url = "https://unlocker.crosspointreader.com/firmware/firmware.bin".to_string();
 
+    // Advertise the same firmware bytes under every asset name we've seen
+    // any GitHub-OTA-shaped firmware look for. CrossPoint/KO devices fetch
+    // `firmware.bin`; CrossInk devices pick by variant, e.g.
+    // `firmware-tiny-v1.2.9.1.bin`. Pointing them all at the same URL means
+    // whichever name the device asks for, it gets whatever the user picked
+    // in our app — enabling cross-firmware flashing (e.g. CrossInk → CrossPoint).
+    let tag = "99.9.9";
+    let asset = |name: String| {
+        serde_json::json!({
+            "name": name,
+            "browser_download_url": download_url,
+            "size": cfg.firmware_size,
+            "content_type": "application/octet-stream",
+        })
+    };
+    // CrossPoint/KO devices look for `firmware.bin`. CrossInk variant builds
+    // look for any asset starting with `firmware-{variant}-` and ending in
+    // `.bin` (see CrossInk's OtaUpdater::isMatchingFirmwareAssetName), so the
+    // exact version string in the middle doesn't matter. Variants are pulled
+    // from CrossInk's platformio.ini.
+    let mut assets = vec![asset("firmware.bin".to_string())];
+    for variant in ["no_emoji", "tiny", "xlarge"] {
+        assets.push(asset(format!("firmware-{variant}-{tag}.bin")));
+    }
+
     // Use a very high version so the device always considers it newer.
     // CrossPoint's version check uses sscanf("%d.%d.%d") so this parses
     // as 99.9.9 which is greater than any real version.
     Json(serde_json::json!({
-        "tag_name": "99.9.9",
+        "tag_name": tag,
         "name": format!("CrossPoint {}", cfg.crosspoint_version),
-        "assets": [{
-            "name": "firmware.bin",
-            "browser_download_url": download_url,
-            "size": cfg.firmware_size,
-            "content_type": "application/octet-stream"
-        }]
+        "assets": assets,
     }))
 }
 
