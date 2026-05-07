@@ -303,12 +303,9 @@ async fn github_releases_latest(
     // validation passes (SAN check). DNS spoofs this to the bridge IP.
     let download_url = "https://unlocker.crosspointreader.com/firmware/firmware.bin".to_string();
 
-    // Advertise the same firmware bytes under every asset name we've seen
-    // any GitHub-OTA-shaped firmware look for. CrossPoint/KO devices fetch
-    // `firmware.bin`; CrossInk devices pick by variant, e.g.
-    // `firmware-tiny-v1.2.9.1.bin`. Pointing them all at the same URL means
-    // whichever name the device asks for, it gets whatever the user picked
-    // in our app — enabling cross-firmware flashing (e.g. CrossInk → CrossPoint).
+    // `tag_name` stays unprefixed — CrossPoint's `sscanf("%d.%d.%d")` would
+    // fail on a leading `v`. CrossInk's parser strips the optional `v`, so
+    // unprefixed is accepted by both for the tag.
     let tag = "99.9.9";
     let asset = |name: String| {
         serde_json::json!({
@@ -318,15 +315,25 @@ async fn github_releases_latest(
             "content_type": "application/octet-stream",
         })
     };
-    // CrossPoint/KO devices look for `firmware.bin`. CrossInk variant builds
-    // look for any asset starting with `firmware-{variant}-` and ending in
-    // `.bin` (see CrossInk's OtaUpdater::isMatchingFirmwareAssetName), so the
-    // exact version string in the middle doesn't matter. Variants are pulled
-    // from CrossInk's platformio.ini.
-    let mut assets = vec![asset("firmware.bin".to_string())];
-    for variant in ["no_emoji", "tiny", "xlarge"] {
-        assets.push(asset(format!("firmware-{variant}-{tag}.bin")));
-    }
+
+    // Identify CrossInk by the repo path. Their build advertises variants and
+    // expects the `v`-prefixed canonical filename (`firmware-<variant>-v<ver>.bin`)
+    // per the maintainer. Other GitHub-shaped firmwares (CrossPoint, KO) look for
+    // a plain `firmware.bin`; mixing the variant entries into their manifest is
+    // unnecessary and could trip stricter parsers in future revisions.
+    let is_crossink = repo.eq_ignore_ascii_case("crossink");
+    let assets = if is_crossink {
+        // Variants come from CrossInk's platformio.ini (`tiny`, `xlarge`,
+        // `no_emoji`). All point at the same firmware bytes — the device's
+        // variant matcher picks the one for its build.
+        let asset_version = "v99.9.9.1";
+        ["no_emoji", "tiny", "xlarge"]
+            .iter()
+            .map(|v| asset(format!("firmware-{v}-{asset_version}.bin")))
+            .collect::<Vec<_>>()
+    } else {
+        vec![asset("firmware.bin".to_string())]
+    };
 
     // Use a very high version so the device always considers it newer.
     // CrossPoint's version check uses sscanf("%d.%d.%d") so this parses
