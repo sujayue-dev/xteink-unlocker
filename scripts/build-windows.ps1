@@ -17,12 +17,16 @@ $RepoRoot = Resolve-Path "$PSScriptRoot\.."
 Set-Location $RepoRoot
 
 # ── Find Windows SDK signtool ───────────────────────────────────────────────
+# Tauri does its own signtool lookup that doesn't honor PATH on every code path,
+# so set TAURI_WINDOWS_SIGNTOOL_PATH explicitly. PATH is also added so any
+# manual / fallback invocation resolves the same binary.
 $sdkBase = "C:\Program Files (x86)\Windows Kits\10\bin"
 $sdkPath = Get-ChildItem $sdkBase -Directory -Filter "10.*" -ErrorAction SilentlyContinue |
     Sort-Object Name -Descending | Select-Object -First 1
 if ($sdkPath) {
     $sdkBin = Join-Path $sdkPath.FullName "x64"
     $env:PATH = "$sdkBin;$env:PATH"
+    $env:TAURI_WINDOWS_SIGNTOOL_PATH = Join-Path $sdkBin "signtool.exe"
     Write-Host "Added Windows SDK to PATH: $sdkBin"
 } else {
     Write-Warning "Windows SDK not found at $sdkBase — signtool unavailable"
@@ -106,30 +110,11 @@ npm run tauri -- build
 if ($LASTEXITCODE -ne 0) { Write-Error "tauri build failed"; exit 1 }
 Set-Location $RepoRoot
 
-# ── Sign installers ─────────────────────────────────────────────────────────
+# Authenticode signing happens inside the Tauri bundle step via
+# bundle.windows.signCommand → scripts/sign-windows-artifact.ps1, so the
+# updater .sig is computed against the already-signed binary.
+
 $bundleRoot = "target\release\bundle"
-
-if ($cert) {
-    Write-Host ""
-    Write-Host "Signing installers (USB token will prompt for PIN)..." -ForegroundColor Cyan
-    $signtool = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
-    if (-not $signtool) {
-        Write-Error "signtool.exe not found in PATH"
-        exit 1
-    }
-    $thumbprint = $cert.Thumbprint
-
-    Get-ChildItem -Path "$bundleRoot\msi\*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-Host "Signing $($_.Name)..."
-        & $signtool sign /sha1 $thumbprint /fd SHA256 /tr http://timestamp.sectigo.com /td SHA256 $_.FullName
-    }
-    Get-ChildItem -Path "$bundleRoot\nsis\*.exe" -ErrorAction SilentlyContinue | ForEach-Object {
-        Write-Host "Signing $($_.Name)..."
-        & $signtool sign /sha1 $thumbprint /fd SHA256 /tr http://timestamp.sectigo.com /td SHA256 $_.FullName
-    }
-    Write-Host "Signing complete." -ForegroundColor Green
-}
-
 Write-Host ""
 Write-Host "Artifacts in: $bundleRoot"
 Get-ChildItem -Path "$bundleRoot\msi" -ErrorAction SilentlyContinue
