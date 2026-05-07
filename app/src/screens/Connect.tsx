@@ -137,6 +137,7 @@ export function Connect({ state }: { state: StateKind }) {
               (192.168.137.0/24). This usually takes a couple of seconds.
             </Subhead>
           </div>
+          <WpaNote platform="windows" />
           <Card>
             <ProgressBar />
           </Card>
@@ -176,6 +177,7 @@ export function Connect({ state }: { state: StateKind }) {
             <strong>Wi-Fi Options</strong> and set a simple password like{" "}
             <span className="font-mono text-stone-700">11111111</span>{" "}
             — you'll need to type this on your Xteink.
+            <WpaNote platform="macos" />
           </Step>
 
           <Step n={3} title="Turn it on" done={false} active={true}>
@@ -450,6 +452,47 @@ function SharingSlideshow() {
         </button>
       </div>
     </Card>
+  );
+}
+
+function WpaNote({ platform }: { platform: "macos" | "windows" }) {
+  return (
+    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+      <p className="font-medium">
+        Set the hotspot security to WPA2 only (not WPA2/WPA3)
+      </p>
+      <p className="mt-1 text-amber-800">
+        The Xteink can't join WPA3-mixed networks. If you don't change this, the
+        device will fail to connect.
+      </p>
+      {platform === "macos" ? (
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-amber-800">
+          <li>
+            In <strong>Wi-Fi Options</strong>, find the <strong>Security</strong>{" "}
+            dropdown.
+          </li>
+          <li>
+            Change it from <strong>WPA2/WPA3 Personal</strong> to{" "}
+            <strong>WPA2 Personal</strong>.
+          </li>
+          <li>Click OK before turning Internet Sharing on.</li>
+        </ol>
+      ) : (
+        <ol className="mt-2 list-decimal space-y-1 pl-5 text-amber-800">
+          <li>
+            Open <strong>Settings → Network &amp; internet → Mobile hotspot</strong>.
+          </li>
+          <li>
+            Click <strong>Edit</strong> (or <strong>Properties</strong>) under
+            the network name.
+          </li>
+          <li>
+            Set <strong>Security</strong> to <strong>WPA2</strong> (not the
+            default WPA2/WPA3) and save.
+          </li>
+        </ol>
+      )}
+    </div>
   );
 }
 
