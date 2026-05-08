@@ -15,3 +15,6 @@ export function platform(): Platform {
 
 export const isWindows = () => cached === "windows";
 export const isMac = () => cached === "macos";
+export const isLinux = () => cached === "linux";
+
+

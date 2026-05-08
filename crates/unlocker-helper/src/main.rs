@@ -56,15 +56,71 @@ async fn main() -> anyhow::Result<()> {
 
     let servers = ServerHolder::new();
 
+    // ── Signal handlers (Unix only) ───────────────────────────────────────────
+    // SIGTERM is the standard "please stop cleanly" signal sent by the parent
+    // app, systemd, launchd, etc.  SIGINT covers Ctrl-C during development.
+    // SIGKILL (-9) cannot be caught; the state file + recover() covers that.
+    #[cfg(unix)]
+    let mut sigterm = {
+        use tokio::signal::unix::{signal, SignalKind};
+        signal(SignalKind::terminate()).expect("SIGTERM handler")
+    };
+    #[cfg(unix)]
+    let mut sigint = {
+        use tokio::signal::unix::{signal, SignalKind};
+        signal(SignalKind::interrupt()).expect("SIGINT handler")
+    };
+
     loop {
-        let stream = listener.accept().await?;
-        let s = servers.clone();
-        tokio::spawn(async move {
-            if let Err(e) = handle(stream, s).await {
-                tracing::warn!(?e, "client disconnected");
+        #[cfg(unix)]
+        tokio::select! {
+            // ── New client connection ─────────────────────────────────────────
+            result = listener.accept() => {
+                let stream = result?;
+                let s = servers.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = handle(stream, s).await {
+                        tracing::warn!(?e, "client disconnected");
+                    }
+                });
             }
-        });
+
+            // ── Graceful shutdown on SIGTERM ──────────────────────────────────
+            _ = sigterm.recv() => {
+                tracing::info!("received SIGTERM - running cleanup and exiting");
+                servers.disarm().await.ok();
+                if let Err(e) = ops::full_cleanup().await {
+                    tracing::warn!(?e, "cleanup on SIGTERM had errors");
+                }
+                break;
+            }
+
+            // ── Graceful shutdown on SIGINT (Ctrl-C / dev runs) ───────────────
+            _ = sigint.recv() => {
+                tracing::info!("received SIGINT - running cleanup and exiting");
+                servers.disarm().await.ok();
+                if let Err(e) = ops::full_cleanup().await {
+                    tracing::warn!(?e, "cleanup on SIGINT had errors");
+                }
+                break;
+            }
+        }
+
+        // On non-Unix targets there are no Unix signals; just accept forever.
+        #[cfg(not(unix))]
+        {
+            let stream = listener.accept().await?;
+            let s = servers.clone();
+            tokio::spawn(async move {
+                if let Err(e) = handle(stream, s).await {
+                    tracing::warn!(?e, "client disconnected");
+                }
+            });
+        }
     }
+
+    tracing::info!("helper exiting cleanly");
+    Ok(())
 }
 
 async fn handle(stream: Stream, servers: Arc<ServerHolder>) -> anyhow::Result<()> {
