@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import { Card, Eyebrow, Heading, StatusDot, Subhead } from "../components/ui";
-import { isWindows } from "../platform";
+import { isWindows, isMac, isLinux } from "../platform";
 import { saveResumeInstall } from "../resumeInstall";
 import { useSessionLog } from "../store";
 import type { Locale, Model, StateKind } from "../types";
@@ -107,10 +107,15 @@ export function Connect({ state }: { state: StateKind }) {
           </Heading>
           <Subhead>
             {phase === "preparing"
-              ? `Verifying SHA-256 as it streams. After this Unlocker is fully offline — your ${isWindows() ? "PC" : "Mac"} can lose internet without affecting the install.`
+              ? `Verifying SHA-256 as it streams. After this Unlocker is fully offline — your ${isWindows() ? "PC" : isMac() ? "Mac" : isLinux() ? "Linux" : "unknown system"} can lose internet without affecting the install.`
               : isWindows()
                 ? "Starting Mobile Hotspot…"
-                : "Preparing the virtual network interface…"}
+                : isMac()
+                ? "Preparing the virtual network interface…"
+                : isLinux()
+                ? "Preparing the virtual network interface…"
+                : "Don't know what your system is, please report this..."
+            }
           </Subhead>
         </div>
         <Card>
@@ -138,6 +143,25 @@ export function Connect({ state }: { state: StateKind }) {
             </Subhead>
           </div>
           <WpaNote platform="windows" />
+          <Card>
+            <ProgressBar />
+          </Card>
+          <LogPanel entries={logs} />
+        </div>
+      );
+    }
+
+    if (isLinux()) {
+      return (
+        <div className="space-y-6">
+          <div>
+            <Eyebrow>Step 4 · Hotspot</Eyebrow>
+            <Heading>Starting Linux Wi-Fi Hotspot…</Heading>
+            <Subhead>
+              Unlocker is asking NetworkManager to start a private hotspot
+              (10.42.0.0/24). This usually takes a few seconds.
+            </Subhead>
+          </div>
           <Card>
             <ProgressBar />
           </Card>

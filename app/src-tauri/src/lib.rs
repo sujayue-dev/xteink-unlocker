@@ -21,8 +21,10 @@ fn get_platform() -> &'static str {
         "windows"
     } else if cfg!(target_os = "macos") {
         "macos"
-    } else {
+    } else if cfg!(target_os = "linux") {
         "linux"
+    } else {
+        todo!("unknown platform")
     }
 }
 
@@ -133,6 +135,15 @@ fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir.join("unlocker-helper.exe"))
 }
 
+#[cfg(target_os = "linux")]
+fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("unlocker-helper"))
+}
+
 #[tauri::command]
 async fn install_helper(app: AppHandle) -> Result<(), String> {
     let helper_path = helper_path(&app)?;
@@ -219,6 +230,30 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
         }
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(&helper_path, perms).map_err(|e| e.to_string())?;
+
+        let path_str = helper_path.to_str().ok_or("non-utf8 helper path")?;
+
+        // Use pkexec for the GUI Linux admin prompt.
+        let status = tokio::process::Command::new("/usr/bin/pkexec")
+            .args([path_str])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| format!("failed to spawn /usr/bin/pkexec: {e}"))?
+            .wait()
+            .await
+            .map_err(|e| format!("failed to wait for /usr/bin/pkexec: {e}"))?;
+
+        if !status.success() {
+            return Err("user cancelled or authorization failed".into());
+        }
+    }
+
     // Wait for the helper to start listening. 10s gives slow machines and
     // first-launch SmartScreen / Gatekeeper checks time to settle.
     let helper = Helper::new();
@@ -241,6 +276,30 @@ fn helper_launch_failure_message(helper_path: &std::path::Path) -> String {
     msg.push_str(&format!("\n• helper exists: {}", helper_path.exists()));
 
     #[cfg(target_os = "macos")]
+    {
+        let running = std::process::Command::new("pgrep")
+            .args(["-x", "unlocker-helper"])
+            .output()
+            .ok()
+            .map(|o| !o.stdout.is_empty())
+            .unwrap_or(false);
+        msg.push_str(&format!("\n• process running: {running}"));
+
+        let socket =
+            std::path::Path::new("/var/run/com.sofriendly.crosspoint.unlocker.helper.sock");
+        msg.push_str(&format!("\n• socket exists: {}", socket.exists()));
+
+        for log in ["/tmp/unlocker-helper.log", "/tmp/unlocker-helper.stdout"] {
+            if let Ok(content) = std::fs::read_to_string(log) {
+                let tail = tail_lines(&content, 20);
+                if !tail.is_empty() {
+                    msg.push_str(&format!("\n--- {log} (last 20 lines) ---\n{tail}"));
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
     {
         let running = std::process::Command::new("pgrep")
             .args(["-x", "unlocker-helper"])
@@ -309,12 +368,23 @@ fn tail_lines(s: &str, n: usize) -> String {
 async fn uninstall_helper() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let script = "do shell script \"pkill -9 unlocker-helper\" with prompt \"Xteink Unlocker needs to stop its privileged helper.\" with administrator privileges";
+        let script = "do shell script \"pkill -15 unlocker-helper\" with prompt \"Xteink Unlocker needs to stop its privileged helper.\" with administrator privileges";
         let status = tokio::process::Command::new("osascript")
             .args(["-e", script])
             .status()
             .await
             .map_err(|e| format!("failed to run osascript: {e}"))?;
+        if !status.success() {
+            return Err("user cancelled or authorization failed".into());
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let status = tokio::process::Command::new("/usr/bin/pkexec")
+            .args(["/usr/bin/pkill", "-15", "unlocker-helper"])
+            .status()
+            .await
+            .map_err(|e| format!("failed to run /usr/bin/pkexec /usr/bin/pkill: {e}"))?;
         if !status.success() {
             return Err("user cancelled or authorization failed".into());
         }

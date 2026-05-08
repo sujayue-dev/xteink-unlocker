@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { isWindows } from "../platform";
+import { isWindows, isLinux, isMac } from "../platform";
 import { useSettingsStore } from "../stores/settingsStore";
 import { PrimaryButton } from "./ui";
 
@@ -98,12 +98,17 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
 
         <section className="space-y-2">
           <h3 className="font-serif text-sm font-semibold text-stone-900">
-            Repair this {isWindows() ? "PC" : "Mac"}'s network settings
+            Repair this {isWindows() ? "PC" : isMac() ? "Mac" : isLinux() ? "Linux" : "unknown system"}'s network settings
           </h3>
           <p className="text-sm text-stone-600">
             {isWindows()
               ? "If Unlocker was closed mid-session and Mobile Hotspot or Wi-Fi routing stopped working, run a cleanup pass to tear down Unlocker-managed network changes. Safe to run any time."
-              : "If Unlocker was closed mid-session and localhost or Wi-Fi routing stopped working, run a cleanup pass to restore loopback and tear down Unlocker-managed network changes. Safe to run any time."}
+              : isMac()
+              ? "If Unlocker was closed mid-session and localhost or Wi-Fi routing stopped working, run a cleanup pass to restore loopback and tear down Unlocker-managed network changes. Safe to run any time."
+              : isLinux()
+              ? "If Unlocker was closed mid-session and localhost or Wi-Fi routing stopped working, run a cleanup pass to restore loopback and tear down Unlocker-managed network changes. Safe to run any time."
+              : "Don't know what your system is, please report this..."
+            }
           </p>
           <div className="pt-1">
             <ActionButton onClick={onRepair} disabled={repairing}>

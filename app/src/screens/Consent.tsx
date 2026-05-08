@@ -7,7 +7,8 @@ import {
   Heading,
   PrimaryButton,
 } from "../components/ui";
-import { isWindows } from "../platform";
+import { isWindows, isMac, isLinux } from "../platform";
+import {invoke} from "@tauri-apps/api/core";
 
 export function Consent() {
   const [general, setGeneral] = useState(false);
@@ -38,7 +39,12 @@ export function Consent() {
           <li>
             {isWindows()
               ? "– Briefly turn on Windows Mobile Hotspot to create a private network for your device. Your Wi-Fi adapter will be in use during the install."
-              : "– Briefly disconnect your Mac's Wi-Fi to create a private hotspot for your device. Wired Ethernet is unaffected."}
+              : isMac()
+              ? "– Briefly disconnect your Mac's Wi-Fi to create a private hotspot for your device. Wired Ethernet is unaffected."
+              : isLinux()
+              ? "– Briefly turn on Linux Wi-Fi Hotspot to create a private network for your device. Your Wi-Fi adapter will be in use during the install."
+              : "Don't know what your system is, please report this..."
+            }
           </li>
           <li>
             – Replace the firmware on the Xteink with CrossPoint, using the

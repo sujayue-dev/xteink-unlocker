@@ -8,7 +8,7 @@ import {
   StatusDot,
   Subhead,
 } from "../components/ui";
-import { isWindows } from "../platform";
+import { isWindows, isMac, isLinux } from "../platform";
 import { useSessionLog } from "../store";
 import { useState } from "react";
 import type { StateKind } from "../types";
@@ -119,12 +119,12 @@ export function Done() {
       <div>
         <Eyebrow>Final step</Eyebrow>
         <Heading>
-          Check your Xteink, then clean up this {isWindows() ? "PC" : "Mac"}
+          Check your Xteink, then clean up this {isWindows() ? "PC" : isMac() ? "Mac" : isLinux() ? "Linux" : "unknown system"}
         </Heading>
         <Subhead>
           Unlocker can only confirm that the device started its own updater.
           The final result is visible on the Xteink itself, not from{" "}
-          {isWindows() ? "this PC" : "the Mac"}.
+          {isWindows() ? "this PC" : isMac() ? "the Mac" : isLinux() ? "this Linux PC" : "this unknown system"}.
         </Subhead>
       </div>
       <Card>
@@ -140,7 +140,7 @@ export function Done() {
       </Card>
       <Card>
         <h2 className="font-serif text-lg font-medium text-stone-900">
-          {isWindows() ? "On this PC" : "On this Mac"}
+          {isWindows() ? "On this PC" : isMac() ? "On this Mac" : isLinux() ? "On this Linux PC" : "On this unknown system"}
         </h2>
         <p className="mt-3 text-sm text-stone-600">
           Only do this <strong>after</strong> you have verified the update
@@ -149,17 +149,23 @@ export function Done() {
         </p>
         <ol className="mt-3 space-y-2 text-sm text-stone-600 list-decimal list-inside">
           <li>Confirm the update succeeded on the device.</li>
-          {isWindows() ? (
-            <li>
-              Click the button below — Unlocker will turn off Mobile Hotspot
-              and restore your network.
-            </li>
-          ) : (
-            <>
-              <li>Turn Internet Sharing off in System Settings.</li>
+          {
+            isWindows() ? (
+              <li>
+                Click the button below — Unlocker will turn off Mobile Hotspot
+                and restore your network.
+              </li>
+            ) : isMac() ? (
+              <>
+                <li>Turn Internet Sharing off in System Settings.</li>
+                <li>Click the button below to tear down Unlocker's local network changes.</li>
+              </>
+            ) : isLinux() ? (
               <li>Click the button below to tear down Unlocker's local network changes.</li>
-            </>
-          )}
+            ) : (
+              <li>Click the button below to tear down Unlocker's local network changes on this unknown system.</li>
+            )
+          }
           <li>Quit Unlocker.</li>
         </ol>
         <div className="mt-5 flex justify-end">
@@ -204,7 +210,7 @@ export function Failed({ error }: { error: string | null }) {
         <Heading>Install failed</Heading>
         <Subhead>
           Unlocker has rolled back any network changes on this{" "}
-          {isWindows() ? "PC" : "Mac"}. Your device may have its own rollback
+          {isWindows() ? "PC" : isMac() ? "Mac" : isLinux() ? "Linux" : "unknown system"}. Your device may have its own rollback
           path; see below.
         </Subhead>
       </div>

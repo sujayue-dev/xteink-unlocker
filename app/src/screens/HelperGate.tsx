@@ -9,7 +9,7 @@ import {
   Subhead,
   Callout,
 } from "../components/ui";
-import { isWindows } from "../platform";
+import { isWindows, isMac, isLinux } from "../platform";
 
 interface HelperStatus {
   installed: boolean;
@@ -109,7 +109,12 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
           <Subhead>
             {isWindows()
               ? "Unlocker needs a small background helper to manage your computer's network during the install. Windows will show a UAC prompt to authorize it."
-              : "Unlocker needs a small background helper to manage your Mac's network during the install. macOS will ask for your password to authorize it."}
+              : isMac()
+              ? "Unlocker needs a small background helper to manage your Mac's network during the install. macOS will ask for your password to authorize it."
+              : isLinux()
+              ? "Unlocker needs a small background helper to manage your Linux's network during the install. Linux will ask for your password via pkexec to authorize it."
+              : "Don't know what your system is, please report this..."
+            }
           </Subhead>
         </div>
 
@@ -127,7 +132,12 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
             <p className="mt-2 text-sm text-stone-600">
               {isWindows()
                 ? "Click Start and approve the UAC prompt when Windows asks. The helper runs only while Unlocker is open."
-                : "Click Start and enter your Mac password when prompted. The helper runs only while Unlocker is open."}
+                : isMac()
+                ? "Click Start and enter your Mac password when prompted. The helper runs only while Unlocker is open."
+                : isLinux()
+                ? "Click Start and enter your Linux pkexec/sudo password when prompted. The helper runs only while Unlocker is open."
+                : "Don't know what your system is, please report this..."
+              }
             </p>
             <div className="mt-5 flex justify-end">
               <PrimaryButton onClick={onInstall}>Start helper</PrimaryButton>
@@ -140,7 +150,12 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
             <p className="text-sm text-stone-500">
               {isWindows()
                 ? "Starting helper… Approve the UAC prompt if Windows shows one."
-                : "Starting helper… Enter your password if macOS prompts you."}
+                : isMac()
+                ? "Starting helper… Enter your password if macOS prompts you."
+                : isLinux()
+                ? "Starting helper… Enter your pkexec/sudo password if prompted."
+                : "Don't know what your system is, please report this..."
+              }
             </p>
           </Card>
         )}
