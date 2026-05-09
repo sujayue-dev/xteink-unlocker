@@ -10,6 +10,9 @@
  *   GET /unlocker-latest.dmg
  *   GET /unlocker-latest.msi
  *   GET /unlocker-latest.tar.gz
+ *   GET /unlocker-latest.AppImage
+ *   GET /unlocker-latest.deb
+ *   GET /unlocker-latest.rpm
  *     Convenience redirects to the most-recent versioned artifact.
  *
  * Anything else is a passthrough to the bucket.
@@ -44,15 +47,22 @@ export default {
       });
     }
 
-    // /unlocker-latest[-arch].(dmg|tar.gz|msi)
+    // /unlocker-latest[-arch].(dmg|tar.gz|msi|AppImage|deb|rpm)
     const latestMatch = key.match(
-      /^unlocker-latest(?:-(arm64|amd64))?\.(dmg|tar\.gz|msi)$/,
+      /^unlocker-latest(?:-(arm64|amd64))?\.(dmg|tar\.gz|msi|AppImage|deb|rpm)$/,
     );
     if (latestMatch) {
       try {
         const ext = latestMatch[2];
-        const manifestKey =
-          ext === "msi" ? "latest-windows-x86_64.json" : "latest.json";
+        const manifestForExt: Record<string, string> = {
+          dmg: "latest.json",
+          "tar.gz": "latest.json",
+          msi: "latest-windows-x86_64.json",
+          AppImage: "latest-linux-x86_64.json",
+          deb: "latest-linux-x86_64.json",
+          rpm: "latest-linux-x86_64.json",
+        };
+        const manifestKey = manifestForExt[ext] ?? "latest.json";
         const manifestObj = await env.BUCKET.get(manifestKey);
         if (manifestObj) {
           const latest = await manifestObj.json<{
@@ -71,6 +81,9 @@ export default {
             dmg: "darwin-aarch64",
             "tar.gz": "darwin-aarch64",
             msi: "windows-x86_64",
+            AppImage: "linux-x86_64",
+            deb: "linux-x86_64",
+            rpm: "linux-x86_64",
           };
           const platformKey = platformForExt[ext];
           const version =
@@ -80,6 +93,9 @@ export default {
             dmg: `v${version}/XteinkUnlocker_${version}_universal.dmg`,
             "tar.gz": `v${version}/XteinkUnlocker_${version}_darwin-universal.app.tar.gz`,
             msi: `v${version}/XteinkUnlocker_${version}_x64.msi`,
+            AppImage: `v${version}/XteinkUnlocker_${version}_linux-x86_64.AppImage`,
+            deb: `v${version}/XteinkUnlocker_${version}_linux-x86_64.deb`,
+            rpm: `v${version}/XteinkUnlocker_${version}_linux-x86_64.rpm`,
           };
           const targetKey = fileMap[ext];
           if (targetKey) {
@@ -109,6 +125,12 @@ export default {
         headers.set("Content-Type", "application/gzip");
       } else if (key.endsWith(".msi")) {
         headers.set("Content-Type", "application/x-msi");
+      } else if (key.endsWith(".AppImage")) {
+        headers.set("Content-Type", "application/vnd.appimage");
+      } else if (key.endsWith(".deb")) {
+        headers.set("Content-Type", "application/vnd.debian.binary-package");
+      } else if (key.endsWith(".rpm")) {
+        headers.set("Content-Type", "application/x-rpm");
       } else if (key.endsWith(".sig")) {
         headers.set("Content-Type", "text/plain");
       } else {
