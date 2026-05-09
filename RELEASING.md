@@ -151,6 +151,7 @@ Required repository secrets (Settings → Secrets and variables → Actions):
 | `CLOUDFLARE_R2_ACCESS_KEY` | R2 API token scoped to the `unlocker-releases` bucket |
 | `CLOUDFLARE_R2_SECRET_KEY` | |
 | `CLOUDFLARE_R2_BUCKET` | optional, defaults to `unlocker-releases` |
+| `UNLOCKER_TLS_PRIVKEY_PEM` | full contents of `crates/unlocker-helper/certs/privkey.pem` (the Let's Encrypt private key for `unlocker.crosspointreader.com`). Compiled into the helper via `include_str!` and gitignored, so CI materializes it from this secret before building. |
 
 `build-linux.sh`:
 

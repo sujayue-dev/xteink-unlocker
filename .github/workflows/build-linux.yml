@@ -76,6 +76,20 @@ jobs:
         working-directory: app
         run: npm ci
 
+      - name: Materialize bundled TLS private key
+        # The helper bakes the Let's Encrypt cert + key into the binary via
+        # include_str!. The key is gitignored, so CI has to write it from a
+        # secret before cargo build can find it.
+        env:
+          PRIVKEY_PEM: ${{ secrets.UNLOCKER_TLS_PRIVKEY_PEM }}
+        run: |
+          if [ -z "$PRIVKEY_PEM" ]; then
+            echo "::error::UNLOCKER_TLS_PRIVKEY_PEM secret is not set"
+            exit 1
+          fi
+          install -m 0600 /dev/null crates/unlocker-helper/certs/privkey.pem
+          printf '%s\n' "$PRIVKEY_PEM" > crates/unlocker-helper/certs/privkey.pem
+
       - name: Build (helper + Tauri bundle)
         run: ./scripts/build-linux.sh
         env:
