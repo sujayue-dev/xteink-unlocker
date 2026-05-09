@@ -8,7 +8,6 @@ import {
   PrimaryButton,
 } from "../components/ui";
 import { isWindows, isMac, isLinux } from "../platform";
-import {invoke} from "@tauri-apps/api/core";
 
 export function Consent() {
   const [general, setGeneral] = useState(false);
