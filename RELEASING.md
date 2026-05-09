@@ -124,10 +124,33 @@ sudo apt install \
 
 ### Build
 
+In practice you won't run this on a Mac — Tauri's Linux build links against `libwebkit2gtk` / `libgtk-3` which aren't available on macOS. Use the CI pipeline (below) for releases, or run on a Linux box / VM / container if you need to iterate locally:
+
 ```bash
 ./scripts/build-linux.sh           # or pass major|minor|patch to bump first
 ./scripts/upload-to-cloudflare-linux.sh
 ```
+
+### CI (GitHub Actions)
+
+`.github/workflows/build-linux.yml` runs the same scripts on `ubuntu-22.04` whenever a `vX.Y.Z` tag is pushed (matches `scripts/release.sh`'s tag step), or on manual dispatch via the Actions tab. It:
+
+1. Installs system deps + Node + Rust.
+2. Runs `scripts/build-linux.sh` (helper → tauri build → AppImage / deb / rpm + signed updater bundle).
+3. Uploads the bundle as a GH Actions artifact for inspection.
+4. Runs `scripts/upload-to-cloudflare-linux.sh` to push to R2 and write `latest-linux-x86_64.json`.
+5. Creates a GitHub Release with the installers attached.
+
+Required repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | Notes |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | minisign private key, single line. Same key used for macOS / Windows. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | optional, only if the key is password-protected |
+| `CLOUDFLARE_ACCOUNT_ID` | |
+| `CLOUDFLARE_R2_ACCESS_KEY` | R2 API token scoped to the `unlocker-releases` bucket |
+| `CLOUDFLARE_R2_SECRET_KEY` | |
+| `CLOUDFLARE_R2_BUCKET` | optional, defaults to `unlocker-releases` |
 
 `build-linux.sh`:
 
