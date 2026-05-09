@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+# Push the latest Linux build artifacts to R2 and write the linux-x86_64
+# update manifest so the Tauri updater (running inside the AppImage) picks it
+# up. Run after build-linux.sh.
+#
+# Required env (loaded from .env.local if present):
+#   CLOUDFLARE_ACCOUNT_ID
+#   CLOUDFLARE_R2_ACCESS_KEY  (or AWS_ACCESS_KEY_ID)
+#   CLOUDFLARE_R2_SECRET_KEY  (or AWS_SECRET_ACCESS_KEY)
+#
+# Optional:
+#   CLOUDFLARE_R2_BUCKET   defaults to "unlocker-releases"
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "${REPO_ROOT}"
+
+if [[ -f .env.local ]]; then
+    # shellcheck disable=SC2046
+    export $(grep -v '^#' .env.local | xargs)
+fi
+
+[[ -z "${CLOUDFLARE_R2_ACCESS_KEY:-}" ]] && CLOUDFLARE_R2_ACCESS_KEY="${AWS_ACCESS_KEY_ID:-}"
+[[ -z "${CLOUDFLARE_R2_SECRET_KEY:-}" ]] && CLOUDFLARE_R2_SECRET_KEY="${AWS_SECRET_ACCESS_KEY:-}"
+
+: "${CLOUDFLARE_ACCOUNT_ID:?CLOUDFLARE_ACCOUNT_ID not set}"
+: "${CLOUDFLARE_R2_ACCESS_KEY:?CLOUDFLARE_R2_ACCESS_KEY not set}"
+: "${CLOUDFLARE_R2_SECRET_KEY:?CLOUDFLARE_R2_SECRET_KEY not set}"
+
+CLOUDFLARE_R2_BUCKET="${CLOUDFLARE_R2_BUCKET:-unlocker-releases}"
+R2_ENDPOINT="https://${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+VERSION=$(grep '"version"' app/src-tauri/tauri.conf.json | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+echo "Uploading version: $VERSION"
+
+# ── Extract release notes from CHANGELOG.md (same logic as macOS upload) ──
+extract_changelog() {
+  local version=$1
+  local changelog_file="CHANGELOG.md"
+  [[ -f "$changelog_file" ]] || { echo "Update to version ${version}"; return; }
+
+  local notes
+  notes=$(awk -v ver="$version" '
+    /^## \[/ {
+      if (found) exit
+      if ($0 ~ "\\[" ver "\\]") found=1
+      next
+    }
+    found && !/^## / { print }
+  ' "$changelog_file" | sed '/^$/d' | sed 's/^- /• /')
+
+  if [[ -z "$notes" ]]; then
+    notes=$(awk '
+      /^## \[/ {
+        if (found) exit
+        found=1
+        next
+      }
+      found && !/^## / { print }
+    ' "$changelog_file" | sed '/^$/d' | sed 's/^- /• /')
+  fi
+  echo "$notes"
+}
+
+CHANGELOG_NOTES=$(extract_changelog "$VERSION")
+[[ -z "$CHANGELOG_NOTES" ]] && CHANGELOG_NOTES="Update to version ${VERSION}"
+echo "Changelog notes:"
+echo "$CHANGELOG_NOTES"
+
+upload_file() {
+  local file=$1
+  local key=$2
+  if [[ -f "$file" ]]; then
+    echo "Uploading: $key"
+    AWS_ACCESS_KEY_ID="$CLOUDFLARE_R2_ACCESS_KEY" \
+    AWS_SECRET_ACCESS_KEY="$CLOUDFLARE_R2_SECRET_KEY" \
+    aws s3 cp "$file" "s3://${CLOUDFLARE_R2_BUCKET}/${key}" \
+      --endpoint-url "$R2_ENDPOINT" \
+      --no-progress
+  else
+    echo "Skipping (not found): $file"
+  fi
+}
+
+echo
+echo "=== Uploading Linux artifacts ==="
+
+BUNDLE_DIR="target/x86_64-unknown-linux-gnu/release/bundle"
+
+APPIMAGE=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage" -type f 2>/dev/null | head -1)
+APPIMAGE_TAR=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage.tar.gz" -type f 2>/dev/null | head -1)
+DEB=$(find "${BUNDLE_DIR}/deb" -name "*.deb" -type f 2>/dev/null | head -1)
+RPM=$(find "${BUNDLE_DIR}/rpm" -name "*.rpm" -type f 2>/dev/null | head -1)
+
+# Upload installers under stable, version-pinned names so the URL pattern
+# matches the macOS / Windows convention.
+[[ -n "${APPIMAGE}" ]] && upload_file "$APPIMAGE" "v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.AppImage"
+[[ -n "${DEB}" ]] && upload_file "$DEB" "v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.deb"
+[[ -n "${RPM}" ]] && upload_file "$RPM" "v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.rpm"
+
+if [[ -n "${APPIMAGE_TAR}" && -f "${APPIMAGE_TAR}" ]]; then
+  TAR_KEY="v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.AppImage.tar.gz"
+  upload_file "$APPIMAGE_TAR" "$TAR_KEY"
+  [[ -f "${APPIMAGE_TAR}.sig" ]] && upload_file "${APPIMAGE_TAR}.sig" "${TAR_KEY}.sig"
+else
+  echo "Warning: AppImage update bundle not found — run build-linux.sh first" >&2
+fi
+
+echo
+echo "=== Writing linux-x86_64 update manifest ==="
+
+LINUX_SIG=""
+[[ -n "${APPIMAGE_TAR:-}" && -f "${APPIMAGE_TAR}.sig" ]] && LINUX_SIG=$(cat "${APPIMAGE_TAR}.sig")
+
+if [[ -z "$LINUX_SIG" ]]; then
+  echo "No Linux signature (TAURI_SIGNING_PRIVATE_KEY unset?). Manifest not written." >&2
+else
+  PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  TAR_URL="https://unlocker-releases.crosspointreader.com/v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.AppImage.tar.gz"
+
+  OUT="${BUNDLE_DIR}/latest-linux-x86_64.json"
+  cat > "$OUT" <<JSON
+{
+  "version": "${VERSION}",
+  "notes": $(jq -Rs . <<<"$CHANGELOG_NOTES"),
+  "pub_date": "${PUB_DATE}",
+  "platforms": {
+    "linux-x86_64": {
+      "signature": $(jq -Rs . <<<"$LINUX_SIG"),
+      "url": "${TAR_URL}"
+    }
+  }
+}
+JSON
+  upload_file "$OUT" "latest-linux-x86_64.json"
+fi
+
+echo
+echo "=== Upload complete ==="
+echo "Linux update endpoint:"
+echo "  https://unlocker-releases.crosspointreader.com/latest-linux-x86_64.json"
+echo "(Auto-update only fires for AppImage installs; .deb / .rpm users upgrade via apt/dnf.)"

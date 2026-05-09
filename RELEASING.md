@@ -103,6 +103,53 @@ Bumps the version, builds + signs + notarizes, commits the version files, tags `
 
 The PowerShell scripts mirror the macOS pipeline: bump version, `cargo build --release -p unlocker-helper`, `npm run tauri -- build` (NSIS + MSI, picks up `app/src-tauri/tauri.windows.conf.json`), `signtool` for both installers using the Sectigo USB token, then push to R2 and merge a `windows-x86_64` entry into `latest.json` while preserving `darwin-aarch64`.
 
+## Linux (x86_64)
+
+### Setup
+
+System packages (Debian/Ubuntu — adjust for your distro):
+
+```bash
+sudo apt install \
+  pkg-config \
+  libwebkit2gtk-4.1-dev \
+  libgtk-3-dev \
+  libayatana-appindicator3-dev \
+  librsvg2-dev \
+  patchelf \
+  rpm
+```
+
+`.env.local` only needs `TAURI_SIGNING_PRIVATE_KEY` (and the Cloudflare R2 vars for upload). No OS-side signing or notarization is required.
+
+### Build
+
+```bash
+./scripts/build-linux.sh           # or pass major|minor|patch to bump first
+./scripts/upload-to-cloudflare-linux.sh
+```
+
+`build-linux.sh`:
+
+1. Builds `unlocker-helper` for `x86_64-unknown-linux-gnu`.
+2. Runs `tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json` — produces `.AppImage`, `.deb`, `.rpm`, and `.AppImage.tar.gz` (the updater bundle).
+3. The Linux config bundles the helper as a Tauri resource so it lands at `resource_dir()/unlocker-helper` inside the AppImage / deb / rpm — same path the Tauri shell already reads.
+4. Tauri auto-signs the `.AppImage.tar.gz` with `TAURI_SIGNING_PRIVATE_KEY` if set.
+
+Output:
+- AppImage: `target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage`
+- Updater bundle: `…/appimage/*.AppImage.tar.gz` (+ `.sig`)
+- Debian package: `target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb`
+- RPM package: `target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm`
+
+### Privileged helper at runtime
+
+The Tauri shell launches `unlocker-helper` via `pkexec`, which gives the user the standard PolicyKit graphical password prompt — the Linux equivalent of the macOS osascript / Windows UAC prompt. No polkit `.policy` file required (pkexec falls back to `auth_admin_keep`).
+
+### Auto-update caveat
+
+Tauri's auto-updater only fires for users running the **AppImage** (it detects via `$APPIMAGE`). Users who installed via `.deb` or `.rpm` need to upgrade through their package manager — re-download the `.deb`/`.rpm` from the releases bucket or rerun the installer. Worth noting in any UI that prompts for updates so package-manager users don't get a broken auto-update flow.
+
 ## Auto-update infrastructure
 
 - **Endpoint:** `https://unlocker-releases.crosspointreader.com/latest.json`
