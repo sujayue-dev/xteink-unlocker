@@ -209,27 +209,35 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
       </div>
 
       {activeSource === "xteink" && (
-        <Callout variant="info" title="Stuck on CrossPoint 1.2.0 and OTA isn't working?">
-          A bug in CrossPoint stable 1.2.0 prevents OTA updates from completing.
-          To recover: enable “Show custom firmware option” in Settings, then
-          try one of the patched files in our{" "}
-          <a
-            href={FIRMWARE_PATCHES_URL}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="font-medium text-brand-700 underline"
-          >
-            firmware-patches folder
-          </a>{" "}
-          under the new “Local firmware” option that appears in this tool.{" "}
-          <strong>
-            While flashing from 1.2.0, the device's progress bar will stay at
-            0% the whole time. That's expected for this bug. Don't cancel;
-            just wait for the update complete screen.
-          </strong>{" "}
-          Once your device is on a patched build, OTA updates to other firmware
-          or newer CrossPoint releases will work normally.
-        </Callout>
+        <details className="group rounded-lg border border-stone-200 bg-stone-50 text-sm/6 text-stone-700">
+          <summary className="cursor-pointer list-none px-4 py-3 font-medium marker:hidden">
+            <span className="inline-block w-4 text-stone-400 transition-transform group-open:rotate-90">
+              ›
+            </span>
+            Stuck on CrossPoint 1.2.0 and OTA isn't working?
+          </summary>
+          <div className="px-4 pb-3 pl-8">
+            A bug in CrossPoint stable 1.2.0 prevents OTA updates from
+            completing. To recover: enable “Show custom firmware option” in
+            Settings, then try one of the patched files in our{" "}
+            <a
+              href={FIRMWARE_PATCHES_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-medium text-brand-700 underline"
+            >
+              firmware-patches folder
+            </a>{" "}
+            under the new “Local firmware” option that appears in this tool.{" "}
+            <strong>
+              While flashing from 1.2.0, the device's progress bar will stay
+              at 0% the whole time. That's expected for this bug. Don't
+              cancel; just wait for the update complete screen.
+            </strong>{" "}
+            Once your device is on a patched build, OTA updates to other
+            firmware or newer CrossPoint releases will work normally.
+          </div>
+        </details>
       )}
 
       <div className="grid gap-2">
