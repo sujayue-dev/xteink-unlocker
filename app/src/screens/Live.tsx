@@ -8,6 +8,7 @@ import {
   StatusDot,
   Subhead,
 } from "../components/ui";
+import { HelperDebugLog } from "../components/HelperDebugLog";
 import { isWindows, isMac, isLinux } from "../platform";
 import { useSessionLog } from "../store";
 import { useState } from "react";
@@ -78,6 +79,8 @@ export function Live({ state }: { state: StateKind }) {
           )}
         </div>
       </Card>
+
+      <HelperDebugLog />
     </div>
   );
 }
@@ -196,6 +199,7 @@ export function Done() {
           <p className="mt-3 text-sm text-stone-600">{helperMessage}</p>
         )}
       </Card>
+      <HelperDebugLog />
     </div>
   );
 }
@@ -249,6 +253,7 @@ export function Failed({ error }: { error: string | null }) {
           </div>
         </div>
       )}
+      <HelperDebugLog />
       <div className="flex justify-end">
         <PrimaryButton onClick={() => api.cancel()}>Start over</PrimaryButton>
       </div>

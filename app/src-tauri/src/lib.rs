@@ -15,6 +15,13 @@ struct AppState {
     runtime: Arc<Runtime>,
 }
 
+#[derive(serde::Serialize)]
+struct HelperLogTail {
+    available: bool,
+    path: Option<String>,
+    content: String,
+}
+
 #[tauri::command]
 fn get_platform() -> &'static str {
     if cfg!(target_os = "windows") {
@@ -362,6 +369,53 @@ fn tail_lines(s: &str, n: usize) -> String {
     let lines: Vec<&str> = s.lines().collect();
     let start = lines.len().saturating_sub(n);
     lines[start..].join("\n")
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn helper_log_paths() -> Vec<std::path::PathBuf> {
+    vec![
+        std::path::PathBuf::from("/tmp/unlocker-helper.log"),
+        std::path::PathBuf::from("/tmp/unlocker-helper.stdout"),
+    ]
+}
+
+#[cfg(target_os = "windows")]
+fn helper_log_paths() -> Vec<std::path::PathBuf> {
+    let base = std::env::var_os("ProgramData")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\ProgramData"));
+    vec![base
+        .join("CrossPoint")
+        .join("unlocker-helper")
+        .join("unlocker-helper.log")]
+}
+
+#[tauri::command]
+async fn get_helper_log_tail(lines: Option<usize>) -> Result<HelperLogTail, String> {
+    let limit = lines.unwrap_or(200).clamp(20, 1000);
+    let paths = helper_log_paths();
+
+    for path in &paths {
+        if !path.exists() {
+            continue;
+        }
+
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+
+        return Ok(HelperLogTail {
+            available: true,
+            path: Some(path.display().to_string()),
+            content: tail_lines(&content, limit),
+        });
+    }
+
+    Ok(HelperLogTail {
+        available: false,
+        path: paths.first().map(|p| p.display().to_string()),
+        content: String::new(),
+    })
 }
 
 #[tauri::command]
@@ -850,6 +904,7 @@ pub fn run() {
             cancel,
             repair_system,
             get_logs,
+            get_helper_log_tail,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
