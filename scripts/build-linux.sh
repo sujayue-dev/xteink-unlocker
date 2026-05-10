@@ -2,11 +2,12 @@
 # Linux release build for Xteink Unlocker (x86_64).
 #
 #  1. cargo build       — produces unlocker-helper for x86_64-unknown-linux-gnu
-#  2. tauri build       — produces .deb, .rpm, .AppImage, and .AppImage.tar.gz
-#                         updater bundle. Helper is included via tauri.linux.conf.json
-#                         bundle.resources so it lands at resource_dir()/unlocker-helper.
-#  3. update bundle     — Tauri auto-signs the .AppImage.tar.gz with
-#                         TAURI_SIGNING_PRIVATE_KEY for auto-update.
+#  2. tauri build       — produces .deb, .rpm, and .AppImage. Helper is
+#                         included via tauri.linux.conf.json bundle.resources
+#                         so it lands at resource_dir()/unlocker-helper.
+#  3. updater signing   — Tauri auto-signs the .AppImage with
+#                         TAURI_SIGNING_PRIVATE_KEY, producing a sibling
+#                         .AppImage.sig that the auto-updater verifies.
 #
 # Linux auto-update only works for users who run the .AppImage.
 # Users on .deb / .rpm need to upgrade through their package manager.
@@ -77,7 +78,7 @@ echo "==> Building Tauri app (x86_64-unknown-linux-gnu)"
 
 # ── Locate produced artifacts ──
 APPIMAGE=$(find target/x86_64-unknown-linux-gnu/release/bundle/appimage -name "*.AppImage" -type f 2>/dev/null | head -1)
-APPIMAGE_TAR=$(find target/x86_64-unknown-linux-gnu/release/bundle/appimage -name "*.AppImage.tar.gz" -type f 2>/dev/null | head -1)
+APPIMAGE_SIG=$(find target/x86_64-unknown-linux-gnu/release/bundle/appimage -name "*.AppImage.sig" -type f 2>/dev/null | head -1)
 DEB=$(find target/x86_64-unknown-linux-gnu/release/bundle/deb -name "*.deb" -type f 2>/dev/null | head -1)
 RPM=$(find target/x86_64-unknown-linux-gnu/release/bundle/rpm -name "*.rpm" -type f 2>/dev/null | head -1)
 
@@ -86,8 +87,7 @@ RPM=$(find target/x86_64-unknown-linux-gnu/release/bundle/rpm -name "*.rpm" -typ
 echo
 echo "Linux build complete."
 echo "  AppImage:        ${APPIMAGE}"
-[[ -n "${APPIMAGE_TAR}" ]] && echo "  Update bundle:   ${APPIMAGE_TAR}"
-[[ -n "${APPIMAGE_TAR}" && -f "${APPIMAGE_TAR}.sig" ]] && echo "  Update sig:      ${APPIMAGE_TAR}.sig"
+[[ -n "${APPIMAGE_SIG}" ]] && echo "  Updater sig:     ${APPIMAGE_SIG}"
 [[ -n "${DEB}" ]] && echo "  Debian package:  ${DEB}"
 [[ -n "${RPM}" ]] && echo "  RPM package:     ${RPM}"
 echo

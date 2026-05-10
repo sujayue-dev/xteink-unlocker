@@ -1,7 +1,7 @@
 name: Build Linux
 
-# Builds + signs + uploads the Linux x86_64 artifacts (AppImage, deb, rpm,
-# AppImage.tar.gz updater bundle) and writes latest-linux-x86_64.json to R2.
+# Builds + signs + uploads the Linux x86_64 artifacts (AppImage + .AppImage.sig,
+# deb, rpm) and writes latest-linux-x86_64.json to R2.
 #
 # Trigger: a `vX.Y.Z` tag push (matches scripts/release.sh) or manual dispatch.
 #
@@ -64,13 +64,20 @@ jobs:
       - name: Cache Cargo
         uses: actions/cache@v4
         with:
+          # Don't cache `target/` — Tauri's bundlers won't re-bundle if their
+          # output already exists, so a restored stale `target/.../bundle/`
+          # ends up shipping the previous release's .deb / .rpm under the new
+          # version's filename. Caching just registry + git is the safe subset.
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      - name: Clean previous bundle outputs
+        # Belt-and-suspenders in case anything else recreates target/.
+        run: rm -rf target/x86_64-unknown-linux-gnu/release/bundle
 
       - name: Install frontend dependencies
         working-directory: app
@@ -102,8 +109,7 @@ jobs:
           name: linux-x86_64
           path: |
             target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
-            target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage.tar.gz
-            target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage.tar.gz.sig
+            target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage.sig
             target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
             target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm
 

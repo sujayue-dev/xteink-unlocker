@@ -64,8 +64,8 @@ const HIDDEN_RELEASES: Record<string, Model[]> = {
   "xteink:stable-1.2.0": ["x4"],
 };
 
-const ESCAPE_FIRMWARE_URL =
-  "https://github.com/SoFriendly/xteink-unlocker/raw/refs/heads/main/firmware-patches/crosspoint-91de6ac-1.2.0-escape.bin";
+const FIRMWARE_PATCHES_URL =
+  "https://github.com/SoFriendly/xteink-unlocker/tree/main/firmware-patches";
 
 export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -211,18 +211,24 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
       {activeSource === "xteink" && (
         <Callout variant="info" title="Stuck on CrossPoint 1.2.0 and OTA isn't working?">
           A bug in CrossPoint stable 1.2.0 prevents OTA updates from completing.
-          To recover: enable “Show custom firmware option” in Settings, then{" "}
+          To recover: enable “Show custom firmware option” in Settings, then
+          try one of the patched files in our{" "}
           <a
-            href={ESCAPE_FIRMWARE_URL}
+            href={FIRMWARE_PATCHES_URL}
             target="_blank"
             rel="noreferrer noopener"
             className="font-medium text-brand-700 underline"
           >
-            download the escape build
-          </a>
-          , then pick that file under the new “Local firmware” option that
-          appears in this tool. Once your device is on that build, OTA updates
-          to other firmware or newer CrossPoint releases will work normally.
+            firmware-patches folder
+          </a>{" "}
+          under the new “Local firmware” option that appears in this tool.{" "}
+          <strong>
+            While flashing from 1.2.0, the device's progress bar will stay at
+            0% the whole time. That's expected for this bug. Don't cancel;
+            just wait for the update complete screen.
+          </strong>{" "}
+          Once your device is on a patched build, OTA updates to other firmware
+          or newer CrossPoint releases will work normally.
         </Callout>
       )}
 

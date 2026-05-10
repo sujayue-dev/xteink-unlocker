@@ -156,13 +156,12 @@ Required repository secrets (Settings → Secrets and variables → Actions):
 `build-linux.sh`:
 
 1. Builds `unlocker-helper` for `x86_64-unknown-linux-gnu`.
-2. Runs `tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json` — produces `.AppImage`, `.deb`, `.rpm`, and `.AppImage.tar.gz` (the updater bundle).
+2. Runs `tauri build --target x86_64-unknown-linux-gnu --config src-tauri/tauri.linux.conf.json` — produces `.AppImage`, `.deb`, `.rpm`.
 3. The Linux config bundles the helper as a Tauri resource so it lands at `resource_dir()/unlocker-helper` inside the AppImage / deb / rpm — same path the Tauri shell already reads.
-4. Tauri auto-signs the `.AppImage.tar.gz` with `TAURI_SIGNING_PRIVATE_KEY` if set.
+4. Tauri auto-signs the `.AppImage` (producing a sibling `.AppImage.sig`) with `TAURI_SIGNING_PRIVATE_KEY` if set. The Tauri 2 auto-updater downloads the AppImage directly and verifies the sig — there is no `.AppImage.tar.gz` updater wrapper anymore (that was a v1 thing).
 
 Output:
-- AppImage: `target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage`
-- Updater bundle: `…/appimage/*.AppImage.tar.gz` (+ `.sig`)
+- AppImage: `target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage` (+ `.sig`)
 - Debian package: `target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb`
 - RPM package: `target/x86_64-unknown-linux-gnu/release/bundle/rpm/*.rpm`
 

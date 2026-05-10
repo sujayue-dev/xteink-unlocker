@@ -88,36 +88,33 @@ echo "=== Uploading Linux artifacts ==="
 
 BUNDLE_DIR="target/x86_64-unknown-linux-gnu/release/bundle"
 
+# Tauri 2 signs the AppImage directly, producing `*.AppImage` and a sibling
+# `*.AppImage.sig`. (v1 produced a `.AppImage.tar.gz` updater bundle — that
+# format is gone in v2.) The updater manifest URL points at the AppImage itself.
 APPIMAGE=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage" -type f 2>/dev/null | head -1)
-APPIMAGE_TAR=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage.tar.gz" -type f 2>/dev/null | head -1)
+APPIMAGE_SIG=$(find "${BUNDLE_DIR}/appimage" -name "*.AppImage.sig" -type f 2>/dev/null | head -1)
 DEB=$(find "${BUNDLE_DIR}/deb" -name "*.deb" -type f 2>/dev/null | head -1)
 RPM=$(find "${BUNDLE_DIR}/rpm" -name "*.rpm" -type f 2>/dev/null | head -1)
 
 # Upload installers under stable, version-pinned names so the URL pattern
 # matches the macOS / Windows convention.
-[[ -n "${APPIMAGE}" ]] && upload_file "$APPIMAGE" "v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.AppImage"
+APPIMAGE_KEY="v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.AppImage"
+[[ -n "${APPIMAGE}" ]] && upload_file "$APPIMAGE" "$APPIMAGE_KEY"
+[[ -n "${APPIMAGE_SIG}" ]] && upload_file "$APPIMAGE_SIG" "${APPIMAGE_KEY}.sig"
 [[ -n "${DEB}" ]] && upload_file "$DEB" "v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.deb"
 [[ -n "${RPM}" ]] && upload_file "$RPM" "v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.rpm"
-
-if [[ -n "${APPIMAGE_TAR}" && -f "${APPIMAGE_TAR}" ]]; then
-  TAR_KEY="v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.AppImage.tar.gz"
-  upload_file "$APPIMAGE_TAR" "$TAR_KEY"
-  [[ -f "${APPIMAGE_TAR}.sig" ]] && upload_file "${APPIMAGE_TAR}.sig" "${TAR_KEY}.sig"
-else
-  echo "Warning: AppImage update bundle not found — run build-linux.sh first" >&2
-fi
 
 echo
 echo "=== Writing linux-x86_64 update manifest ==="
 
 LINUX_SIG=""
-[[ -n "${APPIMAGE_TAR:-}" && -f "${APPIMAGE_TAR}.sig" ]] && LINUX_SIG=$(cat "${APPIMAGE_TAR}.sig")
+[[ -n "${APPIMAGE_SIG:-}" && -f "${APPIMAGE_SIG}" ]] && LINUX_SIG=$(cat "${APPIMAGE_SIG}")
 
 if [[ -z "$LINUX_SIG" ]]; then
   echo "No Linux signature (TAURI_SIGNING_PRIVATE_KEY unset?). Manifest not written." >&2
 else
   PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  TAR_URL="https://unlocker-releases.crosspointreader.com/v${VERSION}/XteinkUnlocker_${VERSION}_linux-x86_64.AppImage.tar.gz"
+  APPIMAGE_URL="https://unlocker-releases.crosspointreader.com/${APPIMAGE_KEY}"
 
   OUT="${BUNDLE_DIR}/latest-linux-x86_64.json"
   cat > "$OUT" <<JSON
@@ -128,7 +125,7 @@ else
   "platforms": {
     "linux-x86_64": {
       "signature": $(jq -Rs . <<<"$LINUX_SIG"),
-      "url": "${TAR_URL}"
+      "url": "${APPIMAGE_URL}"
     }
   }
 }
