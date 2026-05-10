@@ -56,6 +56,17 @@ function releaseLabel(r: CrossPointRelease): string {
 // itself fails. Re-add once KO ships an OTA-sized build.
 const SOURCE_ORDER: Source[] = ["xteink", "crossink"];
 
+// Releases that are present in the catalog but should never be offered in
+// the UI. Keys are namespaced release IDs (`{source-slug}:{id}`); values are
+// models the hide applies to. CrossPoint stable 1.2.0 on x4 has a known OTA
+// regression — users have to escape via the patched .bin in firmware-patches.
+const HIDDEN_RELEASES: Record<string, Model[]> = {
+  "xteink:stable-1.2.0": ["x4"],
+};
+
+const ESCAPE_FIRMWARE_URL =
+  "https://github.com/SoFriendly/xteink-unlocker/raw/refs/heads/main/firmware-patches/crosspoint-91de6ac-1.2.0-escape.bin";
+
 export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +87,9 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
       if (!r.supported_devices || r.supported_devices.length === 0) return true;
       return r.supported_devices.includes(model);
     };
-    const eligible = catalog.releases.filter(supportsModel);
+    const isHidden = (r: CrossPointRelease) =>
+      (HIDDEN_RELEASES[r.id] ?? []).includes(model);
+    const eligible = catalog.releases.filter((r) => supportsModel(r) && !isHidden(r));
     const present = new Set<Source>();
     for (const r of eligible) present.add(r.source ?? "xteink");
     // Stable order: CrossPoint default, then related firmware variants.
@@ -194,6 +207,24 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
           </svg>
         </div>
       </div>
+
+      {activeSource === "xteink" && (
+        <Callout variant="info" title="Stuck on CrossPoint 1.2.0 and OTA isn't working?">
+          A bug in CrossPoint stable 1.2.0 prevents OTA updates from completing.
+          To recover: enable “Show custom firmware option” in Settings, then{" "}
+          <a
+            href={ESCAPE_FIRMWARE_URL}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="font-medium text-brand-700 underline"
+          >
+            download the escape build
+          </a>
+          , then pick that file under the new “Local firmware” option that
+          appears in this tool. Once your device is on that build, OTA updates
+          to other firmware or newer CrossPoint releases will work normally.
+        </Callout>
+      )}
 
       <div className="grid gap-2">
         {(["stable", "beta", "insider"] as Channel[]).map((channel) => {
