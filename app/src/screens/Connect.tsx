@@ -200,7 +200,8 @@ export function Connect({ state }: { state: StateKind }) {
             <strong>Wi-Fi</strong> in the "To devices using" list. Click{" "}
             <strong>Wi-Fi Options</strong> and set a simple password like{" "}
             <span className="font-mono text-stone-700">11111111</span>{" "}
-            — you'll need to type this on your Xteink.
+            <span className="text-stone-500">(8 chars)</span> — you'll need to
+            type this on your Xteink.
             <WpaNote platform="macos" />
           </Step>
 
@@ -411,9 +412,10 @@ const SHARING_SLIDES: { src: string; title: string; body: React.ReactNode }[] = 
       <>
         Check <strong>Wi-Fi</strong> in the "To devices using" list. Click{" "}
         <strong>Wi-Fi Options</strong> and set a simple password like{" "}
-        <span className="font-mono text-stone-700">11111111</span> — you'll
-        type this on your Xteink. Then flip the <strong>Internet Sharing</strong>{" "}
-        toggle on at the top and click Start.
+        <span className="font-mono text-stone-700">11111111</span>{" "}
+        <span className="text-stone-500">(8 chars)</span> — you'll type this on
+        your Xteink. Then flip the <strong>Internet Sharing</strong> toggle on
+        at the top and click Start.
       </>
     ),
   },
