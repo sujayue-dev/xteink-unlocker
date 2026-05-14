@@ -235,8 +235,13 @@ pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
     // Actually, the simplest approach: use the nat-anchor that Internet Sharing
     // already sets up ("com.apple.internet-sharing"), or load rdr rules directly
     // via a transient anchor using echo | pfctl.
+    //
+    // The explicit ICMP pass for type 3 code 4 (fragmentation-needed) keeps
+    // Path-MTU Discovery working through our redirect, so big firmware
+    // transfers can recover if the device guesses too high.
     let rules = format!(
-        "rdr pass on bridge100 inet proto udp from any to any port {from} -> {bridge} port {to}\n\
+        "pass on bridge100 inet proto icmp icmp-type 3 code 4\n\
+         rdr pass on bridge100 inet proto udp from any to any port {from} -> {bridge} port {to}\n\
          rdr pass on bridge100 inet proto tcp from any to any port {from} -> {bridge} port {to}\n",
         from = from_port,
         to = to_port,
@@ -255,12 +260,28 @@ pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
 
     // Enable pf if not already enabled.
     let _ = sh("pfctl", &["-E"]).await;
+
+    // Flush the global state table. Without this, leftover TCP flow entries
+    // from a previous run (cancelled mid-OTA, force-quit, etc.) can match
+    // the device's new connections and silently misroute them — a known
+    // cause of "first attempt fails, reboot fixes it" reports.
+    let _ = sh("pfctl", &["-F", "states"]).await;
+
+    // Pin bridge100 MTU to 1500. Our lo0 fake upstream has MTU 16384, which
+    // can poison PMTU discovery on the return path: the manifest fits in one
+    // packet (works fine) but the multi-MB firmware download gets blackholed
+    // by oversize segments. 1500 matches the device's Wi-Fi link.
+    let _ = sh("ifconfig", &["bridge100", "mtu", "1500"]).await;
+
     tracing::info!(from_port, to_port, %bridge, "pfctl rules loaded via internet-sharing anchor");
     Ok(())
 }
 
 pub async fn pfctl_remove() -> Result<()> {
     let _ = sh("pfctl", &["-a", "com.apple.internet-sharing", "-F", "all"]).await;
+    // Also clear the global state table so stale entries don't survive into
+    // the next session.
+    let _ = sh("pfctl", &["-F", "states"]).await;
     tokio::fs::remove_file(PF_RULES_PATH).await.ok();
     state::mutate(|s| s.pfctl_anchor_loaded = false).await?;
     tracing::info!("pfctl rules flushed");
