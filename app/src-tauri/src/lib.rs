@@ -758,7 +758,24 @@ async fn cleanup_after_install(state: State<'_, AppState>) -> Result<(), String>
 
 #[tauri::command]
 async fn cancel(state: State<'_, AppState>) -> Result<(), String> {
-    let _ = state.runtime.teardown(&state.helper).await;
+    // Show feedback immediately so the UI doesn't look frozen while the
+    // helper teardown is in flight. Previously this ran teardown synchronously
+    // before any state transition — if the helper was blocked (e.g. stuck in
+    // WaitFirmware or a slow `launchctl bootout`) the user saw the prior
+    // screen until they force-quit.
+    state
+        .orch
+        .transition(OrchState::CleaningUp, Some("Reverting changes…".into()))
+        .await;
+
+    // Hard cap teardown. If the helper is genuinely stuck we still transition
+    // back to Idle below; the user can run Repair from settings.
+    let _ = tokio::time::timeout(
+        Duration::from_secs(15),
+        state.runtime.teardown(&state.helper),
+    )
+    .await;
+
     state.orch.cleanup().await;
     Ok(())
 }
