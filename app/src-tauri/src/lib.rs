@@ -764,11 +764,22 @@ async fn cancel(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn repair_system(state: State<'_, AppState>) -> Result<(), String> {
+async fn repair_system(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     state
         .log
         .push("warn", "running network repair and loopback restore", None)
         .await;
+
+    // Repair is most useful right after a force-quit when the helper isn't
+    // running yet — that's also when the loopback bug is biting. If we can't
+    // reach the helper, install/start it first so cleanup actually runs.
+    if state.helper.ping().await.is_err() {
+        install_helper(app).await?;
+    }
+
     state.helper.full_cleanup().await.map_err(|e| e.to_string())
 }
 

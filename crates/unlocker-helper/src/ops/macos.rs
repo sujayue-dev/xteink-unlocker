@@ -328,15 +328,26 @@ pub async fn bridge_ip() -> Result<String> {
 
 pub async fn full_cleanup() -> Result<()> {
     let s = state::read().await.unwrap_or_default();
-    if s.pfctl_anchor_loaded {
-        let _ = pfctl_remove().await;
-    }
+
+    // pfctl rules are idempotent to remove; do it unconditionally so a missing
+    // state file (force-quit, fresh install over a broken prior run) still
+    // tears them down.
+    let _ = pfctl_remove().await;
+
+    // Only touch NAT_PLIST when we know we wrote one (state flag) or have a
+    // backup to restore from. Without either signal, the plist might be the
+    // user's own Internet Sharing config — leave it alone.
     if s.internet_sharing_active || Path::new(NAT_PLIST_BACKUP).exists() {
         let _ = is_disable().await;
-    } else {
-        remove_adhoc_upstream().await;
     }
+
+    // Always remove our adhoc upstream service and restore lo0. This is the
+    // source of the lingering loopback bug: if the service is left in
+    // System Settings → Network with lo0 as upstream, macOS networkd keeps
+    // tearing down 127.0.0.1 every reboot. Run regardless of state.
+    remove_adhoc_upstream().await;
     restore_loopback().await;
+
     state::mutate(|s| {
         s.internet_sharing_active = false;
         s.pfctl_anchor_loaded = false;
