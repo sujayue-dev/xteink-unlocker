@@ -239,10 +239,13 @@ pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
     // The explicit ICMP pass for type 3 code 4 (fragmentation-needed) keeps
     // Path-MTU Discovery working through our redirect, so big firmware
     // transfers can recover if the device guesses too high.
+    // pf requires rules in a fixed order: options, normalization, queueing,
+    // translation (rdr/nat), then filtering (pass/block). The rdr rules must
+    // come before the icmp pass.
     let rules = format!(
-        "pass on bridge100 inet proto icmp icmp-type 3 code 4\n\
-         rdr pass on bridge100 inet proto udp from any to any port {from} -> {bridge} port {to}\n\
-         rdr pass on bridge100 inet proto tcp from any to any port {from} -> {bridge} port {to}\n",
+        "rdr pass on bridge100 inet proto udp from any to any port {from} -> {bridge} port {to}\n\
+         rdr pass on bridge100 inet proto tcp from any to any port {from} -> {bridge} port {to}\n\
+         pass on bridge100 inet proto icmp icmp-type 3 code 4\n",
         from = from_port,
         to = to_port,
         bridge = bridge,
