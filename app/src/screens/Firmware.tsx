@@ -277,6 +277,14 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
                 flash will fail. Switching to a firmware family with a larger
                 partition layout requires a wired USB flash (esptool).
               </div>
+              <div className="mt-3 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-900">
+                <p className="font-medium">Warning</p>
+                <p className="mt-1 text-red-800">
+                  Do not flash any firmware that doesn't support OTA updates or
+                  you will be permanently stuck on that firmware forever. (For
+                  example, Papyrix.)
+                </p>
+              </div>
             </div>
             <button
               type="button"
