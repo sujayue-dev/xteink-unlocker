@@ -14,7 +14,7 @@ struct AppState {
     helper: Arc<Helper>,
     runtime: Arc<Runtime>,
     #[cfg(target_os = "macos")]
-    app_bundle_path: std::path::PathBuf,
+    app_bundle_path: Option<std::path::PathBuf>,
 }
 
 #[derive(serde::Serialize)]
@@ -137,8 +137,30 @@ async fn helper_status(state: State<'_, AppState>) -> Result<HelperStatus, Strin
     })
 }
 
+/// Dev override. `npm run tauri dev` doesn't run from a packaged bundle, so
+/// the platform-specific resolvers below resolve to a path that doesn't
+/// exist. Setting `UNLOCKER_HELPER_PATH` to e.g.
+/// `$PWD/target/debug/unlocker-helper` lets the dev app launch a freshly
+/// rebuilt helper on every reload, without rebuilding the bundle.
+fn helper_path_override() -> Option<std::path::PathBuf> {
+    let p = std::env::var_os("UNLOCKER_HELPER_PATH")?;
+    let p = std::path::PathBuf::from(p);
+    if p.exists() {
+        Some(p)
+    } else {
+        tracing::warn!(
+            path = %p.display(),
+            "UNLOCKER_HELPER_PATH is set but the file doesn't exist; falling back to bundle path"
+        );
+        None
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    if let Some(p) = helper_path_override() {
+        return Ok(p);
+    }
     Ok(app
         .path()
         .resource_dir()
@@ -150,6 +172,9 @@ fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 
 #[cfg(target_os = "windows")]
 fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    if let Some(p) = helper_path_override() {
+        return Ok(p);
+    }
     // Tauri's `bundle.resources` puts the helper under the resource_dir on
     // Windows. Fall back to the exe's directory in case a future config
     // change drops it next to the app exe.
@@ -168,6 +193,9 @@ fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 
 #[cfg(target_os = "linux")]
 fn helper_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    if let Some(p) = helper_path_override() {
+        return Ok(p);
+    }
     Ok(app
         .path()
         .resource_dir()
@@ -961,15 +989,21 @@ fn current_app_bundle() -> Result<std::path::PathBuf, String> {
 fn restart_after_update(_app: AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let app_bundle = _state.app_bundle_path.clone();
-        std::process::Command::new("/bin/sh")
-            .arg("-c")
-            .arg("sleep 0.5; /usr/bin/open -n \"$1\"")
-            .arg("restart-after-update")
-            .arg(&app_bundle)
-            .spawn()
-            .map_err(|e| format!("failed to schedule app restart: {e}"))?;
-        std::process::exit(0);
+        if let Some(app_bundle) = _state.app_bundle_path.clone() {
+            std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg("sleep 0.5; /usr/bin/open -n \"$1\"")
+                .arg("restart-after-update")
+                .arg(&app_bundle)
+                .spawn()
+                .map_err(|e| format!("failed to schedule app restart: {e}"))?;
+            std::process::exit(0);
+        } else {
+            // Dev / unbundled: nothing to relaunch via `open`. Caller can
+            // start the dev server again manually.
+            tracing::warn!("restart_after_update called but no app bundle path is known; exiting");
+            std::process::exit(0);
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -995,7 +1029,15 @@ pub fn run() {
     let helper = Helper::new();
     let runtime = Runtime::new();
     #[cfg(target_os = "macos")]
-    let app_bundle_path = current_app_bundle().expect("failed to resolve app bundle path");
+    let app_bundle_path = match current_app_bundle() {
+        Ok(p) => Some(p),
+        Err(e) => {
+            // Expected in dev (`npm run tauri dev` runs the bare exe outside
+            // a .app bundle). restart_after_update will degrade gracefully.
+            tracing::warn!(error = %e, "no app bundle path; restart-after-update will just exit");
+            None
+        }
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
