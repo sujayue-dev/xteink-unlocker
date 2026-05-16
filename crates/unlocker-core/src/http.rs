@@ -458,9 +458,22 @@ async fn github_releases_latest(
 
     cfg.on_manifest_request.notify_one();
 
-    // Use the hostname that matches our Let's Encrypt cert so TLS
-    // validation passes (SAN check). DNS spoofs this to the bridge IP.
-    let download_url = "https://unlocker.crosspointreader.com/firmware/firmware.bin".to_string();
+    // Serve the firmware over plain HTTP rather than HTTPS. Two reasons:
+    //
+    // 1. On memory-constrained devices (X3 in particular) `esp_https_ota_begin`
+    //    fails with `ESP_ERR_NO_MEM` because mbedTLS + the HTTP client + the
+    //    OTA upgrade buffer don't fit in the largest free contiguous block.
+    //    Plain HTTP skips mbedTLS entirely, freeing ~25–40 KB of contiguous
+    //    heap at exactly the call that's been failing.
+    // 2. The transport security HTTPS would buy us is moot here: we own the
+    //    bridge100 hotspot, the DNS resolver, and the served bytes. Nothing
+    //    can MITM the device on this private network.
+    //
+    // Requires `CONFIG_OTA_ALLOW_HTTP=y` in the CrossPoint build's sdkconfig
+    // (default in arduino-esp32). If a future CrossPoint build flips it off,
+    // esp_https_ota will reject the http:// URL and we'd need to revert
+    // this — easy to spot in the helper log: the firmware GET never arrives.
+    let download_url = "http://unlocker.crosspointreader.com/firmware/firmware.bin".to_string();
 
     // `tag_name` stays unprefixed — CrossPoint's `sscanf("%d.%d.%d")` would
     // fail on a leading `v`. CrossInk's parser strips the optional `v`, so
