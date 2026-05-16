@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -35,7 +36,15 @@ use std::task::{Context, Poll};
 /// whether the transfer finished cleanly or the connection was torn down
 /// mid-stream (TLS error, RST, device aborted, etc.) — info we couldn't see
 /// before when the body was a single `Body::from(Vec)`.
+///
+/// We deliberately pace the stream with a small sleep between chunks. Without
+/// pacing, rustls writes burst into macOS's TCP send buffer faster than
+/// bridge100 + Wi-Fi can drain to the ESP32 — the bridge interface output
+/// queue overflows after ~28-29 chunks and packets get dropped silently,
+/// causing the device to RST the connection partway through. Pacing keeps the
+/// effective rate near what the device can actually receive + flash-write.
 const FIRMWARE_CHUNK_SIZE: usize = 16 * 1024;
+const FIRMWARE_CHUNK_PACING: std::time::Duration = std::time::Duration::from_millis(8);
 
 struct LoggedFirmwareStream {
     bytes: Bytes,
@@ -44,6 +53,7 @@ struct LoggedFirmwareStream {
     next_log_at: usize,
     path: String,
     finished: bool,
+    pacing: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl LoggedFirmwareStream {
@@ -56,6 +66,7 @@ impl LoggedFirmwareStream {
             next_log_at: 0,
             path,
             finished: false,
+            pacing: None,
         }
     }
 }
@@ -63,10 +74,20 @@ impl LoggedFirmwareStream {
 impl Stream for LoggedFirmwareStream {
     type Item = Result<Bytes, std::io::Error>;
 
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.offset >= self.total {
             self.finished = true;
             return Poll::Ready(None);
+        }
+        // Honor pacing between chunks so we don't burst into bridge100's
+        // output queue faster than the Wi-Fi link can drain to the device.
+        if let Some(sleep) = self.pacing.as_mut() {
+            match sleep.as_mut().poll(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(()) => {
+                    self.pacing = None;
+                }
+            }
         }
         let end = (self.offset + FIRMWARE_CHUNK_SIZE).min(self.total);
         let chunk = self.bytes.slice(self.offset..end);
@@ -80,6 +101,10 @@ impl Stream for LoggedFirmwareStream {
             );
             // Log roughly every 10% of the transfer.
             self.next_log_at = self.offset + (self.total / 10).max(FIRMWARE_CHUNK_SIZE);
+        }
+        // Arm the pacing sleep for the next chunk (skipped after the last).
+        if self.offset < self.total {
+            self.pacing = Some(Box::pin(tokio::time::sleep(FIRMWARE_CHUNK_PACING)));
         }
         Poll::Ready(Some(Ok(chunk)))
     }
