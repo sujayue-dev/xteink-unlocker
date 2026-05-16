@@ -26,7 +26,6 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
-use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
@@ -36,15 +35,7 @@ use std::task::{Context, Poll};
 /// whether the transfer finished cleanly or the connection was torn down
 /// mid-stream (TLS error, RST, device aborted, etc.) — info we couldn't see
 /// before when the body was a single `Body::from(Vec)`.
-///
-/// We deliberately pace the stream with a small sleep between chunks. Without
-/// pacing, rustls writes burst into macOS's TCP send buffer faster than
-/// bridge100 + Wi-Fi can drain to the ESP32 — the bridge interface output
-/// queue overflows after ~28-29 chunks and packets get dropped silently,
-/// causing the device to RST the connection partway through. Pacing keeps the
-/// effective rate near what the device can actually receive + flash-write.
 const FIRMWARE_CHUNK_SIZE: usize = 16 * 1024;
-const FIRMWARE_CHUNK_PACING: std::time::Duration = std::time::Duration::from_millis(8);
 
 struct LoggedFirmwareStream {
     bytes: Bytes,
@@ -53,7 +44,6 @@ struct LoggedFirmwareStream {
     next_log_at: usize,
     path: String,
     finished: bool,
-    pacing: Option<Pin<Box<tokio::time::Sleep>>>,
 }
 
 impl LoggedFirmwareStream {
@@ -66,28 +56,80 @@ impl LoggedFirmwareStream {
             next_log_at: 0,
             path,
             finished: false,
-            pacing: None,
         }
     }
+}
+
+/// Parse the ESP32 image header + `esp_app_desc_t` from the firmware bytes and
+/// log the bits that `esp_https_ota_get_img_desc` checks against the running
+/// app: chip_id, project_name, version, secure_version. Anti-rollback or
+/// chip mismatch are the most common reasons the device aborts the OTA after
+/// receiving only the first chunk — this log lets us confirm vs guess.
+fn log_image_metadata(bytes: &[u8]) {
+    // ESP32 image header is 24 bytes; segment 0 header is the next 8 bytes;
+    // `esp_app_desc_t` begins at offset 32 and is at least 256 bytes long.
+    if bytes.len() < 32 + 256 {
+        tracing::warn!(len = bytes.len(), "firmware too short to parse app_desc");
+        return;
+    }
+    let magic = bytes[0];
+    let segment_count = bytes[1];
+    let chip_id = u16::from_le_bytes([bytes[12], bytes[13]]);
+    let chip_name = match chip_id {
+        0x0000 => "ESP32",
+        0x0002 => "ESP32-S2",
+        0x0005 => "ESP32-S3",
+        0x0006 => "ESP32-C3",
+        0x0009 => "ESP32-S2-Beta",
+        0x000C => "ESP32-C2",
+        0x000D => "ESP32-C6",
+        0x0010 => "ESP32-H2",
+        other => return tracing::warn!(magic, segment_count, chip_id = other, "unknown chip_id"),
+    };
+
+    let desc = &bytes[32..32 + 256];
+    let app_desc_magic = u32::from_le_bytes([desc[0], desc[1], desc[2], desc[3]]);
+    if app_desc_magic != 0xABCD5432 {
+        tracing::warn!(
+            chip = chip_name,
+            magic = format!("0x{app_desc_magic:08x}"),
+            "app_desc magic mismatch — image may not be a standard ESP-IDF app"
+        );
+        return;
+    }
+    let secure_version = u32::from_le_bytes([desc[4], desc[5], desc[6], desc[7]]);
+    let version = cstr_field(&desc[16..48]);
+    let project_name = cstr_field(&desc[48..80]);
+    let build_time = cstr_field(&desc[80..96]);
+    let build_date = cstr_field(&desc[96..112]);
+    let idf_ver = cstr_field(&desc[112..144]);
+
+    tracing::info!(
+        chip = chip_name,
+        magic = format!("0x{magic:02x}"),
+        segment_count,
+        %project_name,
+        %version,
+        secure_version,
+        %build_date,
+        %build_time,
+        %idf_ver,
+        "firmware image metadata"
+    );
+}
+
+fn cstr_field(b: &[u8]) -> String {
+    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    String::from_utf8_lossy(&b[..end]).into_owned()
 }
 
 impl Stream for LoggedFirmwareStream {
     type Item = Result<Bytes, std::io::Error>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         if self.offset >= self.total {
             self.finished = true;
             return Poll::Ready(None);
-        }
-        // Honor pacing between chunks so we don't burst into bridge100's
-        // output queue faster than the Wi-Fi link can drain to the device.
-        if let Some(sleep) = self.pacing.as_mut() {
-            match sleep.as_mut().poll(cx) {
-                Poll::Pending => return Poll::Pending,
-                Poll::Ready(()) => {
-                    self.pacing = None;
-                }
-            }
         }
         let end = (self.offset + FIRMWARE_CHUNK_SIZE).min(self.total);
         let chunk = self.bytes.slice(self.offset..end);
@@ -101,10 +143,6 @@ impl Stream for LoggedFirmwareStream {
             );
             // Log roughly every 10% of the transfer.
             self.next_log_at = self.offset + (self.total / 10).max(FIRMWARE_CHUNK_SIZE);
-        }
-        // Arm the pacing sleep for the next chunk (skipped after the last).
-        if self.offset < self.total {
-            self.pacing = Some(Box::pin(tokio::time::sleep(FIRMWARE_CHUNK_PACING)));
         }
         Poll::Ready(Some(Ok(chunk)))
     }
@@ -308,6 +346,8 @@ async fn serve_firmware(
         head24 = %head24,
         "firmware bytes loaded for response"
     );
+
+    log_image_metadata(&bytes);
 
     let mut builder = Response::builder()
         .header(header::CONTENT_TYPE, "application/octet-stream")
