@@ -169,9 +169,23 @@ async fn serve_firmware(
     // the device is already on its OTA progress view.
     cfg.on_firmware_streamed.notify_one();
 
-    let bytes = tokio::fs::read(&cfg.firmware_path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+    let bytes = match tokio::fs::read(&cfg.firmware_path).await {
+        Ok(b) => b,
+        Err(e) => {
+            // Previously this mapped silently to 404 and the device gave up
+            // with no diagnostic in the log. The common failure is the helper
+            // running as root via osascript admin, where macOS TCC blocks
+            // reads from ~/Downloads/~/Desktop/etc. even for root. Surface
+            // the underlying io error so we can tell EPERM from ENOENT.
+            tracing::error!(
+                path = %cfg.firmware_path.display(),
+                error = %e,
+                kind = ?e.kind(),
+                "failed to read firmware file from disk"
+            );
+            return Err(StatusCode::NOT_FOUND);
+        }
+    };
     let served_sha256 = hex::encode(Sha256::digest(&bytes));
     let head24 = hex::encode(&bytes[..bytes.len().min(24)]);
     if !served_sha256.eq_ignore_ascii_case(&cfg.firmware_sha256) {

@@ -653,6 +653,34 @@ async fn run_local_install(
         .and_then(|s| s.to_str())
         .unwrap_or("local firmware")
         .to_string();
+
+    // Copy the user-picked .bin into the app's cache directory before we hand
+    // the path to the privileged helper. The app process has TCC consent for
+    // the file (the user just picked it via the open dialog), but the helper
+    // runs as root via osascript admin and on macOS TCC blocks even root from
+    // reading ~/Downloads / ~/Desktop / iCloud Drive without explicit consent.
+    // Without this copy the helper's tokio::fs::read silently fails with
+    // EPERM, gets mapped to 404, and the device's OTA dies with no log trail.
+    let cached_path = match catalog::cached_path(&sha)? {
+        Some(p) if catalog::verify_file(&p, &sha).unwrap_or(false) => {
+            log.push("info", "local firmware already in cache", None).await;
+            p
+        }
+        _ => {
+            let dest = catalog::cache_dir()?.join(format!("{sha}.bin"));
+            tokio::fs::copy(&path, &dest).await.map_err(|e| {
+                anyhow::anyhow!("failed to copy {} -> {}: {e}", path.display(), dest.display())
+            })?;
+            log.push(
+                "info",
+                format!("copied local firmware into cache: {}", dest.display()),
+                None,
+            )
+            .await;
+            dest
+        }
+    };
+
     log.push(
         "info",
         format!("using local firmware: {display_name} ({size} bytes)"),
@@ -661,7 +689,7 @@ async fn run_local_install(
     .await;
 
     let firmware = PreparedFirmware {
-        path,
+        path: cached_path,
         sha,
         size,
         version: "local".into(),
