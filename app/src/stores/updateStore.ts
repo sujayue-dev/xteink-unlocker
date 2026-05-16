@@ -15,6 +15,7 @@ interface UpdateState {
   downloadProgress: number;
   updateRef: Update | null;
   upToDateAt: number | null;
+  installError: string | null;
 
   checkForUpdates: () => Promise<void>;
   downloadAndInstall: () => Promise<void>;
@@ -29,6 +30,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   downloadProgress: 0,
   updateRef: null,
   upToDateAt: null,
+  installError: null,
 
   checkForUpdates: async () => {
     set({ isChecking: true });
@@ -70,7 +72,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
     const { updateRef } = get();
     if (!updateRef) return;
 
-    set({ isDownloading: true, downloadProgress: 0 });
+    set({ isDownloading: true, downloadProgress: 0, installError: null });
     try {
       let contentLength = 0;
       let downloaded = 0;
@@ -103,8 +105,15 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       await relaunch();
     } catch (error) {
       console.error("Failed to download/install update:", error);
-      set({ isDownloading: false, isInstalling: false });
-      throw error;
+      const message =
+        error instanceof Error
+          ? `${error.name}: ${error.message}`
+          : String(error);
+      set({
+        isDownloading: false,
+        isInstalling: false,
+        installError: message,
+      });
     }
   },
 
@@ -113,6 +122,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       updateAvailable: null,
       updateRef: null,
       downloadProgress: 0,
+      installError: null,
     });
   },
 }));

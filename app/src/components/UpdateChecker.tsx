@@ -12,6 +12,7 @@ export function UpdateChecker() {
     isDownloading,
     isInstalling,
     downloadProgress,
+    installError,
     checkForUpdates,
     downloadAndInstall,
     dismiss,
@@ -68,6 +69,15 @@ export function UpdateChecker() {
           <p className="mt-4 text-sm text-stone-500">
             Installing update… the app will restart in a moment.
           </p>
+        )}
+
+        {installError && (
+          <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-xs/5 text-red-700">
+            <p className="font-semibold">Update failed</p>
+            <p className="mt-1 break-words whitespace-pre-wrap font-mono">
+              {installError}
+            </p>
+          </div>
         )}
 
         <div className="mt-5 flex justify-end gap-2">
