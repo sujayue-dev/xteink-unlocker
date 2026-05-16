@@ -812,17 +812,45 @@ async fn cleanup_after_install(state: State<'_, AppState>) -> Result<(), String>
 
 #[tauri::command]
 async fn cancel(state: State<'_, AppState>) -> Result<(), String> {
-    let _ = state.runtime.teardown(&state.helper).await;
+    // Show feedback immediately so the UI doesn't look frozen while the
+    // helper teardown is in flight. Previously this ran teardown synchronously
+    // before any state transition — if the helper was blocked (e.g. stuck in
+    // WaitFirmware or a slow `launchctl bootout`) the user saw the prior
+    // screen until they force-quit.
+    state
+        .orch
+        .transition(OrchState::CleaningUp, Some("Reverting changes…".into()))
+        .await;
+
+    // Hard cap teardown. If the helper is genuinely stuck we still transition
+    // back to Idle below; the user can run Repair from settings.
+    let _ = tokio::time::timeout(
+        Duration::from_secs(15),
+        state.runtime.teardown(&state.helper),
+    )
+    .await;
+
     state.orch.cleanup().await;
     Ok(())
 }
 
 #[tauri::command]
-async fn repair_system(state: State<'_, AppState>) -> Result<(), String> {
+async fn repair_system(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     state
         .log
         .push("warn", "running network repair and loopback restore", None)
         .await;
+
+    // Repair is most useful right after a force-quit when the helper isn't
+    // running yet — that's also when the loopback bug is biting. If we can't
+    // reach the helper, install/start it first so cleanup actually runs.
+    if state.helper.ping().await.is_err() {
+        install_helper(app).await?;
+    }
+
     state.helper.full_cleanup().await.map_err(|e| e.to_string())
 }
 

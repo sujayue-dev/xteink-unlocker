@@ -204,7 +204,8 @@ export function Connect({ state }: { state: StateKind }) {
             <strong>Wi-Fi</strong> in the "To devices using" list. Click{" "}
             <strong>Wi-Fi Options</strong> and set a simple password like{" "}
             <span className="font-mono text-stone-700">11111111</span>{" "}
-            — you'll need to type this on your Xteink.
+            <span className="text-stone-500">(8 chars)</span> — you'll need to
+            type this on your Xteink.
             <WpaNote platform="macos" />
           </Step>
 
@@ -417,9 +418,10 @@ const SHARING_SLIDES: { src: string; title: string; body: React.ReactNode }[] = 
       <>
         Check <strong>Wi-Fi</strong> in the "To devices using" list. Click{" "}
         <strong>Wi-Fi Options</strong> and set a simple password like{" "}
-        <span className="font-mono text-stone-700">11111111</span> — you'll
-        type this on your Xteink. Then flip the <strong>Internet Sharing</strong>{" "}
-        toggle on at the top and click Start.
+        <span className="font-mono text-stone-700">11111111</span>{" "}
+        <span className="text-stone-500">(8 chars)</span> — you'll type this on
+        your Xteink. Then flip the <strong>Internet Sharing</strong> toggle on
+        at the top and click Start.
       </>
     ),
   },
@@ -486,28 +488,34 @@ function SharingSlideshow() {
 }
 
 function WpaNote({ platform }: { platform: "macos" | "windows" }) {
+  if (platform === "macos") {
+    return (
+      <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="font-medium">
+          Turn off VPNs before continuing
+        </p>
+        <p className="mt-1 text-amber-800">
+          Disable Tailscale, Cloudflare WARP, or any other VPN. They reroute
+          local traffic and stop your Xteink from reaching the hotspot. The
+          default <strong>WPA2/WPA3 Personal</strong> security setting is fine,
+          no need to change it.
+        </p>
+        <p className="mt-2 text-amber-800">
+          If your device still refuses to connect, restart this machine.
+        </p>
+      </div>
+    );
+  }
   return (
-    <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-      <p className="font-medium">
-        Set the hotspot security to WPA2 only (not WPA2/WPA3)
-      </p>
-      <p className="mt-1 text-amber-800">
-        The Xteink can't join WPA3-mixed networks. If you don't change this, the
-        device will fail to connect.
-      </p>
-      {platform === "macos" ? (
-        <ol className="mt-2 list-decimal space-y-1 pl-5 text-amber-800">
-          <li>
-            In <strong>Wi-Fi Options</strong>, find the <strong>Security</strong>{" "}
-            dropdown.
-          </li>
-          <li>
-            Change it from <strong>WPA2/WPA3 Personal</strong> to{" "}
-            <strong>WPA2 Personal</strong>.
-          </li>
-          <li>Click OK before turning Internet Sharing on.</li>
-        </ol>
-      ) : (
+    <div className="mt-3 space-y-3">
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="font-medium">
+          Set the hotspot security to WPA2 only (not WPA2/WPA3)
+        </p>
+        <p className="mt-1 text-amber-800">
+          The Xteink can't join WPA3-mixed networks. If you don't change this,
+          the device will fail to connect.
+        </p>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-amber-800">
           <li>
             Open <strong>Settings → Network &amp; internet → Mobile hotspot</strong>.
@@ -521,7 +529,22 @@ function WpaNote({ platform }: { platform: "macos" | "windows" }) {
             default WPA2/WPA3) and save.
           </li>
         </ol>
-      )}
+      </div>
+      <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="font-medium">
+          Turn off Windows Firewall and Defender, plus any VPN
+        </p>
+        <p className="mt-1 text-amber-800">
+          Windows Defender Firewall blocks the hotspot from reaching the
+          helper, and real-time protection can quarantine the firmware mid
+          transfer. Disable both for the install, plus any active VPN
+          (Tailscale, Cloudflare WARP, etc.). Re-enable everything once
+          you're done.
+        </p>
+        <p className="mt-2 text-amber-800">
+          If your device still refuses to connect, restart this machine.
+        </p>
+      </div>
     </div>
   );
 }

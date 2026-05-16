@@ -9,6 +9,7 @@ import {
   Subhead,
   Callout,
 } from "../components/ui";
+import { SettingsModal } from "../components/SettingsModal";
 import { isWindows, isMac, isLinux } from "../platform";
 
 interface HelperStatus {
@@ -31,6 +32,7 @@ const SKIP_HELPER =
 export function HelperGate({ children }: { children: React.ReactNode }) {
   const [phase, setPhase] = useState<Phase>(SKIP_HELPER ? "ready" : "checking");
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,12 +97,37 @@ export function HelperGate({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="mx-auto flex min-h-full max-w-2xl flex-col px-6 py-12">
-      <header className="flex items-center gap-2">
-        <img src="/logo.png" alt="" className="size-7 rounded-md" />
-        <span className="text-sm/6 font-medium tracking-tight text-stone-900">
-          Xteink Unlocker
-        </span>
+      <header className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <img src="/logo.png" alt="" className="size-7 rounded-md" />
+          <span className="text-sm/6 font-medium tracking-tight text-stone-900">
+            Xteink Unlocker
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Settings and recovery"
+          title="Settings and recovery"
+          className="rounded-md p-2 text-stone-500 hover:bg-stone-100 hover:text-stone-700"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="size-4"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
       </header>
+      {settingsOpen && <SettingsModal onClose={() => setSettingsOpen(false)} />}
 
       <main className="mt-10 space-y-6">
         <div>

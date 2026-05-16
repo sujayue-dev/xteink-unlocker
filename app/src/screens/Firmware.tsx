@@ -56,6 +56,17 @@ function releaseLabel(r: CrossPointRelease): string {
 // itself fails. Re-add once KO ships an OTA-sized build.
 const SOURCE_ORDER: Source[] = ["xteink", "crossink"];
 
+// Releases that are present in the catalog but should never be offered in
+// the UI. Keys are namespaced release IDs (`{source-slug}:{id}`); values are
+// models the hide applies to. CrossPoint stable 1.2.0 on x4 has a known OTA
+// regression — users have to escape via the patched .bin in firmware-patches.
+const HIDDEN_RELEASES: Record<string, Model[]> = {
+  "xteink:stable-1.2.0": ["x4"],
+};
+
+const FIRMWARE_PATCHES_URL =
+  "https://github.com/SoFriendly/xteink-unlocker/tree/main/firmware-patches";
+
 export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,7 +87,9 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
       if (!r.supported_devices || r.supported_devices.length === 0) return true;
       return r.supported_devices.includes(model);
     };
-    const eligible = catalog.releases.filter(supportsModel);
+    const isHidden = (r: CrossPointRelease) =>
+      (HIDDEN_RELEASES[r.id] ?? []).includes(model);
+    const eligible = catalog.releases.filter((r) => supportsModel(r) && !isHidden(r));
     const present = new Set<Source>();
     for (const r of eligible) present.add(r.source ?? "xteink");
     // Stable order: CrossPoint default, then related firmware variants.
@@ -195,6 +208,38 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
         </div>
       </div>
 
+      {activeSource === "xteink" && (
+        <details className="group rounded-lg border border-stone-200 bg-stone-50 text-sm/6 text-stone-700">
+          <summary className="cursor-pointer list-none px-4 py-3 font-medium marker:hidden">
+            <span className="inline-block w-4 text-stone-400 transition-transform group-open:rotate-90">
+              ›
+            </span>
+            Stuck on CrossPoint 1.2.0 and OTA isn't working?
+          </summary>
+          <div className="px-4 pb-3 pl-8">
+            A bug in CrossPoint stable 1.2.0 prevents OTA updates from
+            completing. To recover: enable “Show custom firmware option” in
+            Settings, then try one of the patched files in our{" "}
+            <a
+              href={FIRMWARE_PATCHES_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-medium text-brand-700 underline"
+            >
+              firmware-patches folder
+            </a>{" "}
+            under the new “Local firmware” option that appears in this tool.{" "}
+            <strong>
+              While flashing from 1.2.0, the device's progress bar will stay
+              at 0% the whole time. That's expected for this bug. Don't
+              cancel; just wait for the update complete screen.
+            </strong>{" "}
+            Once your device is on a patched build, OTA updates to other
+            firmware or newer CrossPoint releases will work normally.
+          </div>
+        </details>
+      )}
+
       <div className="grid gap-2">
         {(["stable", "beta", "insider"] as Channel[]).map((channel) => {
           const releases = groups[channel];
@@ -231,6 +276,14 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
                 CrossPoint KO is too big for stock and CrossPoint layouts), the
                 flash will fail. Switching to a firmware family with a larger
                 partition layout requires a wired USB flash (esptool).
+              </div>
+              <div className="mt-3 rounded-md border border-red-300 bg-red-50 p-3 text-xs text-red-900">
+                <p className="font-medium">Warning</p>
+                <p className="mt-1 text-red-800">
+                  Do not flash any firmware that doesn't support OTA updates or
+                  you will be permanently stuck on that firmware forever. (For
+                  example, Papyrix.)
+                </p>
               </div>
             </div>
             <button

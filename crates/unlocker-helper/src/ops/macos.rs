@@ -235,9 +235,17 @@ pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
     // Actually, the simplest approach: use the nat-anchor that Internet Sharing
     // already sets up ("com.apple.internet-sharing"), or load rdr rules directly
     // via a transient anchor using echo | pfctl.
+    //
+    // The explicit ICMP pass for type 3 code 4 (fragmentation-needed) keeps
+    // Path-MTU Discovery working through our redirect, so big firmware
+    // transfers can recover if the device guesses too high.
+    // pf requires rules in a fixed order: options, normalization, queueing,
+    // translation (rdr/nat), then filtering (pass/block). The rdr rules must
+    // come before the icmp pass.
     let rules = format!(
         "rdr pass on bridge100 inet proto udp from any to any port {from} -> {bridge} port {to}\n\
-         rdr pass on bridge100 inet proto tcp from any to any port {from} -> {bridge} port {to}\n",
+         rdr pass on bridge100 inet proto tcp from any to any port {from} -> {bridge} port {to}\n\
+         pass on bridge100 inet proto icmp icmp-type 3 code 4\n",
         from = from_port,
         to = to_port,
         bridge = bridge,
@@ -255,13 +263,60 @@ pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
 
     // Enable pf if not already enabled.
     let _ = sh("pfctl", &["-E"]).await;
+
+    // Flush the global state table. Without this, leftover TCP flow entries
+    // from a previous run (cancelled mid-OTA, force-quit, etc.) can match
+    // the device's new connections and silently misroute them — a known
+    // cause of "first attempt fails, reboot fixes it" reports.
+    let _ = sh("pfctl", &["-F", "states"]).await;
+
+    // Pin bridge100 MTU to 1500. Our lo0 fake upstream has MTU 16384, which
+    // can poison PMTU discovery on the return path: the manifest fits in one
+    // packet (works fine) but the multi-MB firmware download gets blackholed
+    // by oversize segments. 1500 matches the device's Wi-Fi link.
+    let _ = sh("ifconfig", &["bridge100", "mtu", "1500"]).await;
+
+    // Disable TCP Segmentation Offload + Large Receive Offload on bridge100
+    // and the underlying Wi-Fi NIC. Apple Silicon Wi-Fi drivers hand the NIC
+    // 64KB super-segments that the bridge forward path mis-resegments,
+    // killing large transfers (firmware) while small ones (manifest) get
+    // through. Intel Macs don't show the bug. We re-enable on teardown.
+    disable_offload("bridge100").await;
+    if let Ok(wifi) = wifi_device().await {
+        disable_offload(&wifi).await;
+    }
+
     tracing::info!(from_port, to_port, %bridge, "pfctl rules loaded via internet-sharing anchor");
     Ok(())
 }
 
+async fn disable_offload(iface: &str) {
+    // Flag names vary slightly by macOS version; ignore individual failures.
+    for flag in ["-tso4", "-tso6", "-lro"] {
+        let _ = sh("ifconfig", &[iface, flag]).await;
+    }
+}
+
+async fn enable_offload(iface: &str) {
+    for flag in ["tso4", "tso6", "lro"] {
+        let _ = sh("ifconfig", &[iface, flag]).await;
+    }
+}
+
 pub async fn pfctl_remove() -> Result<()> {
     let _ = sh("pfctl", &["-a", "com.apple.internet-sharing", "-F", "all"]).await;
+    // Also clear the global state table so stale entries don't survive into
+    // the next session.
+    let _ = sh("pfctl", &["-F", "states"]).await;
     tokio::fs::remove_file(PF_RULES_PATH).await.ok();
+
+    // Restore the offloads we disabled in pfctl_add so the user's normal
+    // Wi-Fi throughput isn't degraded after Unlocker is done.
+    enable_offload("bridge100").await;
+    if let Ok(wifi) = wifi_device().await {
+        enable_offload(&wifi).await;
+    }
+
     state::mutate(|s| s.pfctl_anchor_loaded = false).await?;
     tracing::info!("pfctl rules flushed");
     Ok(())
@@ -328,15 +383,26 @@ pub async fn bridge_ip() -> Result<String> {
 
 pub async fn full_cleanup() -> Result<()> {
     let s = state::read().await.unwrap_or_default();
-    if s.pfctl_anchor_loaded {
-        let _ = pfctl_remove().await;
-    }
+
+    // pfctl rules are idempotent to remove; do it unconditionally so a missing
+    // state file (force-quit, fresh install over a broken prior run) still
+    // tears them down.
+    let _ = pfctl_remove().await;
+
+    // Only touch NAT_PLIST when we know we wrote one (state flag) or have a
+    // backup to restore from. Without either signal, the plist might be the
+    // user's own Internet Sharing config — leave it alone.
     if s.internet_sharing_active || Path::new(NAT_PLIST_BACKUP).exists() {
         let _ = is_disable().await;
-    } else {
-        remove_adhoc_upstream().await;
     }
+
+    // Always remove our adhoc upstream service and restore lo0. This is the
+    // source of the lingering loopback bug: if the service is left in
+    // System Settings → Network with lo0 as upstream, macOS networkd keeps
+    // tearing down 127.0.0.1 every reboot. Run regardless of state.
+    remove_adhoc_upstream().await;
     restore_loopback().await;
+
     state::mutate(|s| {
         s.internet_sharing_active = false;
         s.pfctl_anchor_loaded = false;
