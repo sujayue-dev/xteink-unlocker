@@ -13,6 +13,8 @@ struct AppState {
     http: reqwest::Client,
     helper: Arc<Helper>,
     runtime: Arc<Runtime>,
+    #[cfg(target_os = "macos")]
+    app_bundle_path: std::path::PathBuf,
 }
 
 #[derive(serde::Serialize)]
@@ -101,15 +103,37 @@ struct HelperStatus {
 #[tauri::command]
 async fn helper_status(state: State<'_, AppState>) -> Result<HelperStatus, String> {
     let socket_reachable = state.helper.ping().await.is_ok();
+    // Compare the running helper's reported version with this app's bundled
+    // version. If they don't match (or the helper predates the version field)
+    // the helper is stale — surface this as `not_running` so HelperGate runs
+    // install_helper instead of trusting the live socket. Matters during
+    // development and after any auto-update, when a long-running root helper
+    // would otherwise keep serving old code.
+    let app_version = env!("CARGO_PKG_VERSION");
+    let helper_version = if socket_reachable {
+        state.helper.version().await.ok().flatten()
+    } else {
+        None
+    };
+    let version_matches = helper_version.as_deref() == Some(app_version);
+    let usable = socket_reachable && version_matches;
+    let status_label = match (socket_reachable, version_matches) {
+        (false, _) => "not_running",
+        (true, false) => "needs_upgrade",
+        (true, true) => "running",
+    }
+    .to_string();
+    if socket_reachable && !version_matches {
+        tracing::info!(
+            app_version,
+            helper_version = ?helper_version,
+            "stale helper detected; HelperGate will reinstall"
+        );
+    }
     Ok(HelperStatus {
-        installed: socket_reachable,
-        status_label: if socket_reachable {
-            "running"
-        } else {
-            "not_running"
-        }
-        .into(),
-        socket_reachable,
+        installed: usable,
+        status_label,
+        socket_reachable: usable,
     })
 }
 
@@ -906,6 +930,54 @@ async fn get_logs(state: State<'_, AppState>) -> Result<Vec<LogEntry>, String> {
     Ok(state.log.snapshot().await)
 }
 
+#[cfg(target_os = "macos")]
+fn app_bundle_from_exe(exe: std::path::PathBuf) -> Result<std::path::PathBuf, String> {
+    let macos_dir = exe
+        .parent()
+        .ok_or_else(|| "can't resolve executable directory".to_string())?;
+    let contents_dir = macos_dir
+        .parent()
+        .ok_or_else(|| "can't resolve app Contents directory".to_string())?;
+    let app_bundle = contents_dir
+        .parent()
+        .ok_or_else(|| "can't resolve app bundle".to_string())?;
+
+    if app_bundle.extension().and_then(|s| s.to_str()) != Some("app") {
+        return Err(format!(
+            "resolved path is not an app bundle: {}",
+            app_bundle.display()
+        ));
+    }
+
+    Ok(app_bundle.to_path_buf())
+}
+
+#[cfg(target_os = "macos")]
+fn current_app_bundle() -> Result<std::path::PathBuf, String> {
+    app_bundle_from_exe(std::env::current_exe().map_err(|e| e.to_string())?)
+}
+
+#[tauri::command]
+fn restart_after_update(_app: AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let app_bundle = _state.app_bundle_path.clone();
+        std::process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg("sleep 0.5; /usr/bin/open -n \"$1\"")
+            .arg("restart-after-update")
+            .arg(&app_bundle)
+            .spawn()
+            .map_err(|e| format!("failed to schedule app restart: {e}"))?;
+        std::process::exit(0);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        tauri::process::restart(&_app.env());
+    }
+}
+
 pub fn run() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -922,6 +994,8 @@ pub fn run() {
         .expect("reqwest");
     let helper = Helper::new();
     let runtime = Runtime::new();
+    #[cfg(target_os = "macos")]
+    let app_bundle_path = current_app_bundle().expect("failed to resolve app bundle path");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -934,6 +1008,8 @@ pub fn run() {
             http,
             helper: helper.clone(),
             runtime: runtime.clone(),
+            #[cfg(target_os = "macos")]
+            app_bundle_path,
         })
         .setup(move |app| {
             let handle: AppHandle = app.handle().clone();
@@ -980,6 +1056,7 @@ pub fn run() {
             repair_system,
             get_logs,
             get_helper_log_tail,
+            restart_after_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

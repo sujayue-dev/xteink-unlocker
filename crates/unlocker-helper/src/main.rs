@@ -143,7 +143,10 @@ async fn handle(stream: Stream, servers: Arc<ServerHolder>) -> anyhow::Result<()
 
 async fn dispatch(req: Request, servers: &ServerHolder) -> Response {
     let result: anyhow::Result<serde_json::Value> = match req {
-        Request::Ping => Ok(serde_json::json!({"pong": true})),
+        Request::Ping => Ok(serde_json::json!({
+            "pong": true,
+            "version": env!("CARGO_PKG_VERSION"),
+        })),
 
         Request::IsEnable { ssid, psk } => ops::is_enable(&ssid, &psk)
             .await

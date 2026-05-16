@@ -1,6 +1,8 @@
 import { create } from "zustand";
+import { invoke } from "@tauri-apps/api/core";
 import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { isMac } from "../platform";
 
 interface UpdateInfo {
   version: string;
@@ -20,6 +22,15 @@ interface UpdateState {
   checkForUpdates: () => Promise<void>;
   downloadAndInstall: () => Promise<void>;
   dismiss: () => void;
+}
+
+async function restartAfterUpdate() {
+  if (isMac()) {
+    await invoke<void>("restart_after_update");
+    return;
+  }
+
+  await relaunch();
 }
 
 export const useUpdateStore = create<UpdateState>((set, get) => ({
@@ -102,7 +113,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         }
       });
 
-      await relaunch();
+      await restartAfterUpdate();
     } catch (error) {
       console.error("Failed to download/install update:", error);
       const message =

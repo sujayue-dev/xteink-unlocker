@@ -79,6 +79,16 @@ impl Helper {
         self.one_shot(Request::Ping).await.map(|_| ())
     }
 
+    /// Returns the running helper's `CARGO_PKG_VERSION`. Older helpers that
+    /// predate this field return None — the app treats that as a forced
+    /// upgrade.
+    pub async fn version(&self) -> Result<Option<String>> {
+        let v = self.one_shot(Request::Ping).await?;
+        Ok(v.get("version")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string()))
+    }
+
     pub async fn is_enable(&self, ssid: &str, psk: &str) -> Result<()> {
         self.one_shot(Request::IsEnable {
             ssid: ssid.into(),
