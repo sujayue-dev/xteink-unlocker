@@ -276,8 +276,31 @@ pub async fn pfctl_add(from_port: u16, to_port: u16) -> Result<()> {
     // by oversize segments. 1500 matches the device's Wi-Fi link.
     let _ = sh("ifconfig", &["bridge100", "mtu", "1500"]).await;
 
+    // Disable TCP Segmentation Offload + Large Receive Offload on bridge100
+    // and the underlying Wi-Fi NIC. Apple Silicon Wi-Fi drivers hand the NIC
+    // 64KB super-segments that the bridge forward path mis-resegments,
+    // killing large transfers (firmware) while small ones (manifest) get
+    // through. Intel Macs don't show the bug. We re-enable on teardown.
+    disable_offload("bridge100").await;
+    if let Ok(wifi) = wifi_device().await {
+        disable_offload(&wifi).await;
+    }
+
     tracing::info!(from_port, to_port, %bridge, "pfctl rules loaded via internet-sharing anchor");
     Ok(())
+}
+
+async fn disable_offload(iface: &str) {
+    // Flag names vary slightly by macOS version; ignore individual failures.
+    for flag in ["-tso4", "-tso6", "-lro"] {
+        let _ = sh("ifconfig", &[iface, flag]).await;
+    }
+}
+
+async fn enable_offload(iface: &str) {
+    for flag in ["tso4", "tso6", "lro"] {
+        let _ = sh("ifconfig", &[iface, flag]).await;
+    }
 }
 
 pub async fn pfctl_remove() -> Result<()> {
@@ -286,6 +309,14 @@ pub async fn pfctl_remove() -> Result<()> {
     // the next session.
     let _ = sh("pfctl", &["-F", "states"]).await;
     tokio::fs::remove_file(PF_RULES_PATH).await.ok();
+
+    // Restore the offloads we disabled in pfctl_add so the user's normal
+    // Wi-Fi throughput isn't degraded after Unlocker is done.
+    enable_offload("bridge100").await;
+    if let Ok(wifi) = wifi_device().await {
+        enable_offload(&wifi).await;
+    }
+
     state::mutate(|s| s.pfctl_anchor_loaded = false).await?;
     tracing::info!("pfctl rules flushed");
     Ok(())
