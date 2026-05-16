@@ -180,8 +180,10 @@ async fn install_helper(app: AppHandle) -> Result<(), String> {
         let script = format!(
             "do shell script \"\
                 echo \\\"[$(date +%H:%M:%S)] install_helper as $(whoami), launching '{path_str}'\\\" >>/tmp/unlocker-helper.stdout; \
-                pkill unlocker-helper 2>/dev/null; \
+                pkill -TERM -x unlocker-helper 2>/dev/null || true; \
                 sleep 1; \
+                pkill -KILL -x unlocker-helper 2>/dev/null || true; \
+                rm -f /var/run/com.sofriendly.crosspoint.unlocker.helper.sock; \
                 '{path_str}' </dev/null >>/tmp/unlocker-helper.stdout 2>&1 & \
                 echo \\\"[$(date +%H:%M:%S)] backgrounded pid=$!\\\" >>/tmp/unlocker-helper.stdout\" \
                 with prompt \"Xteink Unlocker needs to start a privileged helper to manage your network.\" \
@@ -422,14 +424,31 @@ async fn get_helper_log_tail(lines: Option<usize>) -> Result<HelperLogTail, Stri
 async fn uninstall_helper() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let script = "do shell script \"pkill -15 unlocker-helper\" with prompt \"Xteink Unlocker needs to stop its privileged helper.\" with administrator privileges";
+        let script = "do shell script \"\
+            if pgrep -x unlocker-helper >/dev/null 2>&1; then \
+                pkill -TERM -x unlocker-helper 2>/dev/null || true; \
+                for i in 1 2 3 4 5; do \
+                    pgrep -x unlocker-helper >/dev/null 2>&1 || { rm -f /var/run/com.sofriendly.crosspoint.unlocker.helper.sock; exit 0; }; \
+                    sleep 1; \
+                done; \
+                pkill -KILL -x unlocker-helper 2>/dev/null || true; \
+                for i in 1 2 3 4 5; do \
+                    pgrep -x unlocker-helper >/dev/null 2>&1 || { rm -f /var/run/com.sofriendly.crosspoint.unlocker.helper.sock; exit 0; }; \
+                    sleep 1; \
+                done; \
+                exit 1; \
+            fi; \
+            rm -f /var/run/com.sofriendly.crosspoint.unlocker.helper.sock; \
+            exit 0\" \
+            with prompt \"Xteink Unlocker needs to stop its privileged helper.\" \
+            with administrator privileges";
         let status = tokio::process::Command::new("osascript")
             .args(["-e", script])
             .status()
             .await
             .map_err(|e| format!("failed to run osascript: {e}"))?;
         if !status.success() {
-            return Err("user cancelled or authorization failed".into());
+            return Err("user cancelled, authorization failed, or helper did not stop".into());
         }
     }
     #[cfg(target_os = "linux")]
