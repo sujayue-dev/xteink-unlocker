@@ -71,3 +71,9 @@ export interface LogEntry {
   message: string;
   data: unknown;
 }
+
+export interface HelperLogTail {
+  available: boolean;
+  path: string | null;
+  content: string;
+}

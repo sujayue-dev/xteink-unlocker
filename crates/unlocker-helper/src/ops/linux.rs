@@ -811,4 +811,3 @@ mod integration_tests {
         assert!(gone, "bridge IP should be gone after full_cleanup");
     }
 }
-

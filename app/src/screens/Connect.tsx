@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../api";
 import { Card, Eyebrow, Heading, StatusDot, Subhead } from "../components/ui";
+import { HelperDebugLog } from "../components/HelperDebugLog";
 import { isWindows, isMac, isLinux } from "../platform";
 import { saveResumeInstall } from "../resumeInstall";
 import { useSessionLog } from "../store";
@@ -122,6 +123,7 @@ export function Connect({ state }: { state: StateKind }) {
           <ProgressBar />
         </Card>
         <LogPanel entries={logs} />
+        <HelperDebugLog />
       </div>
     );
   }
@@ -147,6 +149,7 @@ export function Connect({ state }: { state: StateKind }) {
             <ProgressBar />
           </Card>
           <LogPanel entries={logs} />
+          <HelperDebugLog />
         </div>
       );
     }
@@ -166,6 +169,7 @@ export function Connect({ state }: { state: StateKind }) {
             <ProgressBar />
           </Card>
           <LogPanel entries={logs} />
+          <HelperDebugLog />
         </div>
       );
     }
@@ -243,6 +247,7 @@ export function Connect({ state }: { state: StateKind }) {
           </div>
         </Card>
         <LogPanel entries={logs} />
+        <HelperDebugLog />
       </div>
     );
   }
@@ -293,6 +298,7 @@ export function Connect({ state }: { state: StateKind }) {
       </ol>
 
       <LogPanel entries={logs} />
+      <HelperDebugLog />
     </div>
   );
 }

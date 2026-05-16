@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Catalog, LogEntry, Locale, Model, OrchState } from "./types";
+import type {
+  Catalog,
+  HelperLogTail,
+  LogEntry,
+  Locale,
+  Model,
+  OrchState,
+} from "./types";
 
 export interface SessionInfo {
   model: Model | null;
@@ -33,4 +40,6 @@ export const api = {
   confirmRunning: () => invoke<void>("confirm_running"),
   cancel: () => invoke<void>("cancel"),
   getLogs: () => invoke<LogEntry[]>("get_logs"),
+  getHelperLogTail: (lines = 200) =>
+    invoke<HelperLogTail>("get_helper_log_tail", { lines }),
 };
