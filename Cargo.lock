@@ -5527,6 +5527,7 @@ dependencies = [
  "tracing",
  "uuid",
  "windows-sys 0.59.0",
+ "x509-parser",
 ]
 
 [[package]]

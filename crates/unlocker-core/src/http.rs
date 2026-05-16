@@ -20,11 +20,90 @@ use axum::{
     Router,
 };
 use axum_server::tls_rustls::RustlsConfig;
+use bytes::Bytes;
+use futures::Stream;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
+
+/// Body stream that yields the firmware in fixed-size chunks while logging
+/// progress and final state. The Drop impl is the key piece: it tells us
+/// whether the transfer finished cleanly or the connection was torn down
+/// mid-stream (TLS error, RST, device aborted, etc.) — info we couldn't see
+/// before when the body was a single `Body::from(Vec)`.
+const FIRMWARE_CHUNK_SIZE: usize = 16 * 1024;
+
+struct LoggedFirmwareStream {
+    bytes: Bytes,
+    offset: usize,
+    total: usize,
+    next_log_at: usize,
+    path: String,
+    finished: bool,
+}
+
+impl LoggedFirmwareStream {
+    fn new(bytes: Bytes, path: String) -> Self {
+        let total = bytes.len();
+        Self {
+            bytes,
+            offset: 0,
+            total,
+            next_log_at: 0,
+            path,
+            finished: false,
+        }
+    }
+}
+
+impl Stream for LoggedFirmwareStream {
+    type Item = Result<Bytes, std::io::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.offset >= self.total {
+            self.finished = true;
+            return Poll::Ready(None);
+        }
+        let end = (self.offset + FIRMWARE_CHUNK_SIZE).min(self.total);
+        let chunk = self.bytes.slice(self.offset..end);
+        self.offset = end;
+        if self.offset >= self.next_log_at {
+            tracing::info!(
+                path = %self.path,
+                written = self.offset,
+                total = self.total,
+                "firmware stream progress"
+            );
+            // Log roughly every 10% of the transfer.
+            self.next_log_at = self.offset + (self.total / 10).max(FIRMWARE_CHUNK_SIZE);
+        }
+        Poll::Ready(Some(Ok(chunk)))
+    }
+}
+
+impl Drop for LoggedFirmwareStream {
+    fn drop(&mut self) {
+        if self.finished {
+            tracing::info!(
+                path = %self.path,
+                written = self.offset,
+                total = self.total,
+                "firmware stream complete"
+            );
+        } else {
+            tracing::warn!(
+                path = %self.path,
+                written = self.offset,
+                total = self.total,
+                "firmware stream closed early (peer disconnected or TLS error)"
+            );
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -216,6 +295,7 @@ async fn serve_firmware(
             HeaderValue::from_static("attachment; filename=firmware.bin"),
         );
 
+    let path_for_log = cfg.firmware_path.display().to_string();
     let body = match range {
         Some((start, end)) => {
             let content_len = end - start + 1;
@@ -229,11 +309,11 @@ async fn serve_firmware(
                 .status(StatusCode::PARTIAL_CONTENT)
                 .header(header::CONTENT_RANGE, format!("bytes {start}-{end}/{size}"))
                 .header(header::CONTENT_LENGTH, content_len);
-            Body::from(chunk)
+            Body::from_stream(LoggedFirmwareStream::new(Bytes::from(chunk), path_for_log))
         }
         None => {
             builder = builder.header(header::CONTENT_LENGTH, size);
-            Body::from(bytes)
+            Body::from_stream(LoggedFirmwareStream::new(Bytes::from(bytes), path_for_log))
         }
     };
 
@@ -439,6 +519,41 @@ pub async fn start(cfg: Arc<ServerConfig>, cert: &SelfSignedCert) -> anyhow::Res
         rustls_pemfile::certs(&mut cert.cert_pem.as_bytes()).collect::<Result<Vec<_>, _>>()?;
     let key = rustls_pemfile::private_key(&mut cert.key_pem.as_bytes())?
         .ok_or_else(|| anyhow::anyhow!("no private key found in PEM"))?;
+
+    // Log the leaf cert's subject + SANs so we can confirm the cert we present
+    // covers the hostnames the device will request. esp_https_ota verifies the
+    // server hostname against the cert SAN list after the handshake — if our
+    // cert only covers some of the spoofed hostnames, the device will tear
+    // down the connection right after handshake with no visible logs on our
+    // side. Logging once at boot makes that misconfiguration obvious.
+    if let Some(leaf) = certs.first() {
+        match x509_parser::parse_x509_certificate(leaf.as_ref()) {
+            Ok((_, parsed)) => {
+                let subject = parsed.subject().to_string();
+                let sans: Vec<String> = parsed
+                    .extensions()
+                    .iter()
+                    .filter_map(|ext| match ext.parsed_extension() {
+                        x509_parser::extensions::ParsedExtension::SubjectAlternativeName(san) => {
+                            Some(
+                                san.general_names
+                                    .iter()
+                                    .map(|n| format!("{n:?}"))
+                                    .collect::<Vec<_>>()
+                                    .join(", "),
+                            )
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                let not_before = parsed.validity().not_before.to_string();
+                let not_after = parsed.validity().not_after.to_string();
+                tracing::info!(%subject, sans = ?sans, %not_before, %not_after, "tls cert loaded");
+            }
+            Err(e) => tracing::warn!(error = %e, "failed to parse leaf cert for SAN logging"),
+        }
+    }
+
     let mut server_config = rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
