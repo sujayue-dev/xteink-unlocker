@@ -2,39 +2,51 @@ import { create } from "zustand";
 
 const STORAGE_KEY = "xteink-unlocker-settings";
 
-type SettingsState = {
+type PersistedSettings = {
   showCustomFirmwareOption: boolean;
-  setShowCustomFirmwareOption: (value: boolean) => void;
+  showPrereleaseFirmware: boolean;
 };
 
-function loadSettings(): Pick<SettingsState, "showCustomFirmwareOption"> {
-  if (typeof window === "undefined") {
-    return { showCustomFirmwareOption: false };
-  }
+type SettingsState = PersistedSettings & {
+  setShowCustomFirmwareOption: (value: boolean) => void;
+  setShowPrereleaseFirmware: (value: boolean) => void;
+};
+
+function loadSettings(): PersistedSettings {
+  const defaults: PersistedSettings = {
+    showCustomFirmwareOption: false,
+    showPrereleaseFirmware: false,
+  };
+
+  if (typeof window === "undefined") return defaults;
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { showCustomFirmwareOption: false };
-    const parsed = JSON.parse(raw) as Partial<SettingsState>;
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<PersistedSettings>;
     return {
       showCustomFirmwareOption: parsed.showCustomFirmwareOption === true,
+      showPrereleaseFirmware: parsed.showPrereleaseFirmware === true,
     };
   } catch {
-    return { showCustomFirmwareOption: false };
+    return defaults;
   }
 }
 
-function saveSettings(showCustomFirmwareOption: boolean) {
-  window.localStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({ showCustomFirmwareOption }),
-  );
+function saveSettings(settings: PersistedSettings) {
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+export const useSettingsStore = create<SettingsState>((set, get) => ({
   ...loadSettings(),
   setShowCustomFirmwareOption: (showCustomFirmwareOption) => {
-    saveSettings(showCustomFirmwareOption);
     set({ showCustomFirmwareOption });
+    const { showPrereleaseFirmware } = get();
+    saveSettings({ showCustomFirmwareOption, showPrereleaseFirmware });
+  },
+  setShowPrereleaseFirmware: (showPrereleaseFirmware) => {
+    set({ showPrereleaseFirmware });
+    const { showCustomFirmwareOption } = get();
+    saveSettings({ showCustomFirmwareOption, showPrereleaseFirmware });
   },
 }));

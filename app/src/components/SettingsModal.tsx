@@ -36,6 +36,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
   const setShowCustomFirmwareOption = useSettingsStore(
     (state) => state.setShowCustomFirmwareOption,
   );
+  const showPrereleaseFirmware = useSettingsStore(
+    (state) => state.showPrereleaseFirmware,
+  );
+  const setShowPrereleaseFirmware = useSettingsStore(
+    (state) => state.setShowPrereleaseFirmware,
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -124,6 +130,23 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
           <h3 className="font-serif text-sm font-semibold text-stone-900">
             Advanced firmware options
           </h3>
+          <label className="flex items-start gap-3 text-sm text-stone-700">
+            <input
+              type="checkbox"
+              checked={showPrereleaseFirmware}
+              onChange={(e) => setShowPrereleaseFirmware(e.target.checked)}
+              className="mt-0.5 size-4 rounded border-stone-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span>
+              <span className="block font-medium text-stone-900">
+                Show CrossPoint betas and nightly builds
+              </span>
+              <span className="block text-stone-600">
+                Reveals beta and insider (nightly) channels in the firmware
+                selector. These builds may be unstable.
+              </span>
+            </span>
+          </label>
           <label className="flex items-start gap-3 text-sm text-stone-700">
             <input
               type="checkbox"

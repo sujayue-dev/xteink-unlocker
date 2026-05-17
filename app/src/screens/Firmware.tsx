@@ -76,6 +76,9 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
   const showCustomFirmwareOption = useSettingsStore(
     (state) => state.showCustomFirmwareOption,
   );
+  const showPrereleaseFirmware = useSettingsStore(
+    (state) => state.showPrereleaseFirmware,
+  );
 
   useEffect(() => {
     api.fetchCatalog().then(setCatalog).catch((e) => setError(String(e)));
@@ -89,7 +92,11 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
     };
     const isHidden = (r: CrossPointRelease) =>
       (HIDDEN_RELEASES[r.id] ?? []).includes(model);
-    const eligible = catalog.releases.filter((r) => supportsModel(r) && !isHidden(r));
+    const isHiddenChannel = (r: CrossPointRelease) =>
+      !showPrereleaseFirmware && (r.channel === "beta" || r.channel === "insider");
+    const eligible = catalog.releases.filter(
+      (r) => supportsModel(r) && !isHidden(r) && !isHiddenChannel(r),
+    );
     const present = new Set<Source>();
     for (const r of eligible) present.add(r.source ?? "xteink");
     // Stable order: CrossPoint default, then related firmware variants.
@@ -103,7 +110,7 @@ export function Firmware({ model, locale }: { model: Model; locale: Locale }) {
       map.set(src, { stable: by("stable"), beta: by("beta"), insider: by("insider") });
     }
     return { sources, groups: map };
-  }, [catalog, model]);
+  }, [catalog, model, showPrereleaseFirmware]);
 
   // Default the dropdown to the first available source (CrossPoint when present).
   useEffect(() => {
