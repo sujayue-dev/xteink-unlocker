@@ -510,6 +510,8 @@ async fn github_releases_latest(
     // Use a very high version so the device always considers it newer.
     // CrossPoint's version check uses sscanf("%d.%d.%d") so this parses
     // as 99.9.9 which is greater than any real version.
+    tracing::info!(%download_url, %tag, is_crossink, "serving manifest");
+
     Json(serde_json::json!({
         "tag_name": tag,
         "name": format!("CrossPoint {}", cfg.crosspoint_version),

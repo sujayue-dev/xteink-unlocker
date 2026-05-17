@@ -48,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
 
     let endpoint = transport::endpoint();
     let listener = Listener::bind(&endpoint)?;
-    tracing::info!(%endpoint, "helper listening");
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), %endpoint, "helper listening");
 
     if let Err(e) = state::recover().await {
         tracing::warn!(?e, "state recovery had issues");
