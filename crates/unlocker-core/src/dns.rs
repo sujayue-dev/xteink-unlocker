@@ -30,6 +30,8 @@ impl DnsConfig {
                 "api.github.com".to_string(),
                 // Firmware download URL uses our cert's hostname.
                 "unlocker.crosspointreader.com".to_string(),
+                "gitee.com".to_string(),           // ← 新增
+                "api.gitee.com".to_string(),       // ← 新增
             ],
             answer_with: bridge_ip,
         }
