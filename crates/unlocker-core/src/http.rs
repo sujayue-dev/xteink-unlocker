@@ -228,7 +228,7 @@ pub fn router(cfg: Arc<ServerConfig>) -> Router {
             "/repos/{owner}/{repo}/releases/latest",
             get(github_releases_latest),
         )
-       // ← 新增开始
+        .route( // ← 新增开始
             "/api/v5/repos/{owner}/{repo}/releases/latest",
             get(gitee_releases_latest),
         )                 // ← 新增结束
