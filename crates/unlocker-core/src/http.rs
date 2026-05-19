@@ -228,11 +228,41 @@ pub fn router(cfg: Arc<ServerConfig>) -> Router {
             "/repos/{owner}/{repo}/releases/latest",
             get(github_releases_latest),
         )
+       // ← 新增开始
+            "/api/v5/repos/{owner}/{repo}/releases/latest",
+            get(gitee_releases_latest),
+        )                 // ← 新增结束
         .fallback(catch_all)
         .layer(middleware::from_fn(log_request))
         .with_state(cfg)
 }
 
+ /// Spoofs Gitee API `GET /api/v5/repos/{owner}/{repo}/releases/latest`.
+async fn gitee_releases_latest(
+    State(cfg): State<<Arc<<ServerConfig>>,
+    headers: HeaderMap,
+) -> Json<<serde_json::Value> {
+    tracing::info!(
+        host = ?headers.get(header::HOST),
+        user_agent = ?headers.get(header::USER_AGENT),
+        "device requested update via Gitee API"
+    );
+
+    cfg.on_manifest_request.notify_one();
+
+    let download_url = format!("http://{}/firmware/firmware.bin", cfg.bridge_ip);
+
+    Json(serde_json::json!({
+        "tag_name": "99.99.99",
+        "assets": [
+            {
+                "name": "firmware.bin",
+                "browser_download_url": download_url,
+                "size": cfg.firmware_size,
+            }
+        ]
+    }))
+}   
 async fn log_request(req: AxRequest<Body>, next: Next) -> Response {
     let method = req.method().clone();
     let uri = req.uri().clone();
