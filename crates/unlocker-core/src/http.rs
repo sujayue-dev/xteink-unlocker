@@ -239,9 +239,9 @@ pub fn router(cfg: Arc<ServerConfig>) -> Router {
 
  /// Spoofs Gitee API `GET /api/v5/repos/{owner}/{repo}/releases/latest`.
 async fn gitee_releases_latest(
-    State(cfg): State<<Arc<<ServerConfig>>,
+    State(cfg): State<Arc<ServerConfig>>,
     headers: HeaderMap,
-) -> Json<<serde_json::Value> {
+) -> Json<serde_json::Value> {
     tracing::info!(
         host = ?headers.get(header::HOST),
         user_agent = ?headers.get(header::USER_AGENT),
